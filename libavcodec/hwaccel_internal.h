@@ -30,6 +30,7 @@
 
 #define HWACCEL_CAP_ASYNC_SAFE      (1 << 0)
 #define HWACCEL_CAP_THREAD_SAFE     (1 << 1)
+#define HWACCEL_CAP_INTERNAL_ALLOC  (1 << 2)
 
 typedef struct FFHWAccel {
     /**
