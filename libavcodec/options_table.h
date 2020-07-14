@@ -255,6 +255,7 @@ static const AVOption avcodec_options[] = {
 {"skip_frame"      , "skip decoding for the selected frames",               OFFSET(skip_frame),       AV_OPT_TYPE_INT, {.i64 = AVDISCARD_DEFAULT }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
 {"none"            , "discard no frame",                    0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_NONE    }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
 {"default"         , "discard useless frames",              0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_DEFAULT }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
+{"invalid"         , "discard NALUs before IRAP",           0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_INVALID }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
 {"noref"           , "discard all non-reference frames",    0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_NONREF  }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
 {"bidir"           , "discard all bidirectional frames",    0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_BIDIR   }, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
 {"nointra"         , "discard all frames except I frames",  0, AV_OPT_TYPE_CONST, {.i64 = AVDISCARD_NONINTRA}, INT_MIN, INT_MAX, V|D, .unit = "avdiscard"},
