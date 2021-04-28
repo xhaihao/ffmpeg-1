@@ -99,6 +99,7 @@ typedef struct VPPContext{
     char *output_format_str;
 
     int has_passthrough;        /* apply pass through mode if possible */
+    int field_rate;             /* deinterlace mode */
 } VPPContext;
 
 static const char *const var_names[] = {
@@ -223,6 +224,7 @@ static av_cold int vpp_preinit(AVFilterContext *ctx)
     vpp->saturation = 1.0;
     vpp->contrast = 1.0;
     vpp->transpose = -1;
+    vpp->field_rate = 1;
 
     vpp->has_passthrough = 1;
 
@@ -256,7 +258,10 @@ static int config_input(AVFilterLink *inlink)
     if (vpp->framerate.den == 0 || vpp->framerate.num == 0)
         vpp->framerate = inlink->frame_rate;
 
-    if (av_cmp_q(vpp->framerate, inlink->frame_rate))
+    if (vpp->field_rate == 2)
+        vpp->framerate = av_mul_q(inlink->frame_rate,
+                                  (AVRational){ 2, 1 });
+    else if (av_cmp_q(vpp->framerate, inlink->frame_rate))
         vpp->use_frc = 1;
 
     ret = eval_expr(ctx);
@@ -729,3 +734,30 @@ static av_cold int qsvscale_preinit(AVFilterContext *ctx)
 }
 
 DEFINE_QSV_FILTER(qsvscale, scale, "scaling and format conversion", FILTER_SINGLE_PIXFMT(AV_PIX_FMT_QSV));
+
+static const AVOption qsvdeint_options[] = {
+    { "mode", "set deinterlace mode", OFFSET(deinterlace),   AV_OPT_TYPE_INT, {.i64 = MFX_DEINTERLACING_ADVANCED}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
+    { "bob",   "bob algorithm",                  0, AV_OPT_TYPE_CONST,      {.i64 = MFX_DEINTERLACING_BOB}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
+    { "advanced", "Motion adaptive algorithm",   0, AV_OPT_TYPE_CONST, {.i64 = MFX_DEINTERLACING_ADVANCED}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
+
+    { "rate", "Generate output at frame rate or field rate",
+      OFFSET(field_rate), AV_OPT_TYPE_INT, { .i64 = 2 }, 1, 2, FLAGS, "rate" },
+    { "frame", "Output at frame rate (one frame of output for each field-pair)",
+      0, AV_OPT_TYPE_CONST, { .i64 = 1 }, 0, 0, FLAGS, "rate" },
+    { "field", "Output at field rate (one frame of output for each field)",
+      0, AV_OPT_TYPE_CONST, { .i64 = 2 }, 0, 0, FLAGS, "rate" },
+
+    { NULL },
+};
+
+static av_cold int qsvdeint_preinit(AVFilterContext *ctx)
+{
+    VPPContext  *vpp  = ctx->priv;
+
+    vpp_preinit(ctx);
+    vpp->has_passthrough = 0;
+
+    return 0;
+}
+
+DEFINE_QSV_FILTER(qsvdeint, deinterlace, "deinterlacing", FILTER_SINGLE_PIXFMT(AV_PIX_FMT_QSV))
