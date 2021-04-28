@@ -691,6 +691,7 @@ int ff_qsvvpp_create(AVFilterContext *avctx, QSVVPPContext **vpp, QSVVPPParam *p
     if (!s)
         return AVERROR(ENOMEM);
 
+    s->last_in_pts   = AV_NOPTS_VALUE;
     s->filter_frame  = param->filter_frame;
     if (!s->filter_frame)
         s->filter_frame = ff_filter_frame;
@@ -820,6 +821,8 @@ int ff_qsvvpp_free(QSVVPPContext **vpp)
         MFXClose(s->session);
     }
 
+    s->last_in_pts = AV_NOPTS_VALUE;
+
     /* release all the resources */
     clear_frame_list(&s->in_frame_list);
     clear_frame_list(&s->out_frame_list);
@@ -843,6 +846,7 @@ int ff_qsvvpp_filter_frame(QSVVPPContext *s, AVFilterLink *inlink, AVFrame *picr
     mfxSyncPoint      sync;
     QSVFrame         *in_frame, *out_frame;
     int               ret, ret1, filter_ret;
+    int64_t           dpts = 0;
 
     while (s->eof && av_fifo_read(s->async_fifo, &aframe, 1) >= 0) {
         if (MFXVideoCORE_SyncOperation(s->session, aframe.sync, 1000) < 0)
@@ -888,8 +892,19 @@ int ff_qsvvpp_filter_frame(QSVVPPContext *s, AVFilterLink *inlink, AVFrame *picr
                 return AVERROR(EAGAIN);
             break;
         }
-        out_frame->frame->pts = av_rescale_q(out_frame->surface.Data.TimeStamp,
-                                             default_tb, outlink->time_base);
+
+        /* TODO: calculate the PTS for other cases */
+        if (s->deinterlace_enabled &&
+            s->last_in_pts != AV_NOPTS_VALUE &&
+            ret == MFX_ERR_MORE_SURFACE &&
+            out_frame->surface.Data.TimeStamp == MFX_TIMESTAMP_UNKNOWN)
+            dpts = (in_frame->frame->pts - s->last_in_pts) / 2;
+        else
+            dpts = 0;
+
+        out_frame->frame->pts = av_rescale_q(in_frame->frame->pts - dpts,
+                                             inlink->time_base,
+                                             outlink->time_base);
 
         out_frame->queued++;
         aframe = (QSVAsyncFrame){ sync, out_frame };
@@ -918,6 +933,8 @@ int ff_qsvvpp_filter_frame(QSVVPPContext *s, AVFilterLink *inlink, AVFrame *picr
             aframe.frame->frame = NULL;
         }
     } while(ret == MFX_ERR_MORE_SURFACE);
+
+    s->last_in_pts = in_frame->frame->pts;
 
     if (ret < 0)
         return ff_qsvvpp_print_error(ctx, ret, "Error running VPP");
