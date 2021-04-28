@@ -768,6 +768,12 @@ DEFINE_QSV_FILTER(qsvscale, scale, "scaling and format conversion", FILTER_PIXFM
 
 #if CONFIG_DEINTERLACE_QSV_FILTER
 
+static const enum AVPixelFormat qsvdeint_pix_fmts[] = {
+    AV_PIX_FMT_NV12,
+    AV_PIX_FMT_QSV,
+    AV_PIX_FMT_NONE,
+};
+
 static const AVOption qsvdeint_options[] = {
     { "mode", "set deinterlace mode", OFFSET(deinterlace),   AV_OPT_TYPE_INT, {.i64 = MFX_DEINTERLACING_ADVANCED}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
     { "bob",   "bob algorithm",                  0, AV_OPT_TYPE_CONST,      {.i64 = MFX_DEINTERLACING_BOB}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
@@ -788,6 +794,6 @@ static av_cold int qsvdeint_preinit(AVFilterContext *ctx)
     return 0;
 }
 
-DEFINE_QSV_FILTER(qsvdeint, deinterlace, "deinterlacing", FILTER_SINGLE_PIXFMT(AV_PIX_FMT_QSV))
+DEFINE_QSV_FILTER(qsvdeint, deinterlace, "deinterlacing", FILTER_PIXFMTS_ARRAY(qsvdeint_pix_fmts));
 
 #endif
