@@ -727,6 +727,13 @@ DEFINE_QSV_FILTER(vpp, vpp, "VPP", FILTER_QUERY_FUNC(vpp_query_formats));
 
 #if CONFIG_SCALE_QSV_FILTER
 
+static const enum AVPixelFormat qsvscale_pix_fmts[] = {
+    AV_PIX_FMT_NV12,
+    AV_PIX_FMT_P010,
+    AV_PIX_FMT_QSV,
+    AV_PIX_FMT_NONE,
+};
+
 static const AVOption qsvscale_options[] = {
     { "w",      "Output video width(0=input video width, -1=keep input video aspect)",  OFFSET(ow), AV_OPT_TYPE_STRING, { .str = "iw"   }, .flags = FLAGS },
     { "h",      "Output video height(0=input video height, -1=keep input video aspect)", OFFSET(oh), AV_OPT_TYPE_STRING, { .str = "ih"   }, .flags = FLAGS },
@@ -755,7 +762,7 @@ static av_cold int qsvscale_preinit(AVFilterContext *ctx)
     return 0;
 }
 
-DEFINE_QSV_FILTER(qsvscale, scale, "scaling and format conversion", FILTER_SINGLE_PIXFMT(AV_PIX_FMT_QSV));
+DEFINE_QSV_FILTER(qsvscale, scale, "scaling and format conversion", FILTER_PIXFMTS_ARRAY(qsvscale_pix_fmts));
 
 #endif
 
