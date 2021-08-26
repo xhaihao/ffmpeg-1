@@ -205,6 +205,7 @@ static void dump_video_param(AVCodecContext *avctx, QSVEncContext *q,
 #endif
 
     const char *tmp_str = NULL;
+    mfxExtHEVCParam *exthevcparam = NULL;
 
     if (q->co2_idx > 0)
         co2 = (mfxExtCodingOption2*)coding_opts[q->co2_idx];
@@ -220,6 +221,8 @@ static void dump_video_param(AVCodecContext *avctx, QSVEncContext *q,
         exthypermodeparam = (mfxExtHyperModeParam *)coding_opts[q->exthypermodeparam_idx];
 #endif
 
+    if (q->exthevcparam_idx > 0)
+        exthevcparam = (mfxExtHEVCParam *)coding_opts[q->exthevcparam_idx];
     av_log(avctx, AV_LOG_VERBOSE, "profile: %s; level: %"PRIu16"\n",
            print_profile(avctx->codec_id, info->CodecProfile), info->CodecLevel);
 
@@ -400,6 +403,11 @@ static void dump_video_param(AVCodecContext *avctx, QSVEncContext *q,
         av_log(avctx, AV_LOG_VERBOSE, "\n");
     }
 #endif
+    if (exthevcparam &&
+        exthevcparam->GeneralConstraintFlags == MFX_HEVC_CONSTR_REXT_ONE_PICTURE_ONLY &&
+        avctx->codec_id == AV_CODEC_ID_HEVC &&
+        info->CodecProfile == MFX_PROFILE_HEVC_MAIN10)
+        av_log(avctx, AV_LOG_VERBOSE, "Main10sp (Main10 profile and one_pic_only flag): enable\n");
 }
 
 static void dump_video_vp9_param(AVCodecContext *avctx, QSVEncContext *q,
@@ -1209,6 +1217,18 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         q->extparam_internal[q->nb_extparam_internal++] = (mfxExtBuffer *)&q->exthevctiles;
     }
 
+    if (avctx->codec_id == AV_CODEC_ID_HEVC && q->main10sp) {
+        if (QSV_RUNTIME_VERSION_ATLEAST(q->ver, 2, 0)) {
+            q->param.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN10;
+            q->exthevcparam.Header.BufferId = MFX_EXTBUFF_HEVC_PARAM;
+            q->exthevcparam.Header.BufferSz = sizeof(q->exthevcparam);
+            q->exthevcparam.GeneralConstraintFlags = MFX_HEVC_CONSTR_REXT_ONE_PICTURE_ONLY;
+            q->extparam_internal[q->nb_extparam_internal++] = (mfxExtBuffer *)&q->exthevcparam;
+        } else
+            av_log(avctx, AV_LOG_WARNING,
+                   "This version of runtime doesn't support 10bit single still picture\n");
+    }
+
     q->extvsi.VideoFullRange = (avctx->color_range == AVCOL_RANGE_JPEG);
     q->extvsi.ColourDescriptionPresent = 0;
 
@@ -1461,12 +1481,17 @@ static int qsv_retrieve_enc_params(AVCodecContext *avctx, QSVEncContext *q)
     };
 #endif
 
-    mfxExtBuffer *ext_buffers[6 + QSV_HAVE_HE];
+    mfxExtHEVCParam hevc_param_buf = {
+        .Header.BufferId = MFX_EXTBUFF_HEVC_PARAM,
+        .Header.BufferSz = sizeof(hevc_param_buf),
+    };
 
+    mfxExtBuffer *ext_buffers[7 + QSV_HAVE_HE];
     int need_pps = avctx->codec_id != AV_CODEC_ID_MPEG2VIDEO;
     int ret, ext_buf_num = 0, extradata_offset = 0;
 
     q->co2_idx = q->co3_idx = q->exthevctiles_idx = q->exthypermodeparam_idx = -1;
+    q->exthevcparam_idx = -1;
     ext_buffers[ext_buf_num++] = (mfxExtBuffer*)&extradata;
     ext_buffers[ext_buf_num++] = (mfxExtBuffer*)&co;
 
@@ -1494,6 +1519,10 @@ static int qsv_retrieve_enc_params(AVCodecContext *avctx, QSVEncContext *q)
         ext_buffers[ext_buf_num++] = (mfxExtBuffer*)&hyper_mode_param_buf;
     }
 #endif
+    if (avctx->codec_id == AV_CODEC_ID_HEVC && QSV_RUNTIME_VERSION_ATLEAST(q->ver, 2, 0)) {
+        q->exthevcparam_idx = ext_buf_num;
+        ext_buffers[ext_buf_num++] = (mfxExtBuffer*)&hevc_param_buf;
+    }
 
     q->param.ExtParam    = ext_buffers;
     q->param.NumExtParam = ext_buf_num;
