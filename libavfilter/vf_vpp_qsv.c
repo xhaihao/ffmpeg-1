@@ -29,6 +29,8 @@
 #include "libavutil/hwcontext_qsv.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/mathematics.h"
+#include "libavutil/file_open.h"
+#include "libavutil/avstring.h"
 
 #include "formats.h"
 #include "internal.h"
@@ -42,7 +44,10 @@
 #define FLAGS (AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_FILTERING_PARAM)
 
 /* number of video enhancement filters */
-#define ENH_FILTERS_COUNT (8)
+#define ENH_FILTERS_COUNT (16)
+#define MAX_LINE_SIZE 512
+
+#define QSV_HAVE_3DLUT QSV_VERSION_ATLEAST(2, 7)
 
 typedef struct VPPContext{
     const AVClass *class;
@@ -62,6 +67,10 @@ typedef struct VPPContext{
 #if QSV_ONEVPL
     // Per frame
     mfxExtVideoSignalInfo invsi_conf;
+
+    mfxExtVPP3DLut lut3d_conf;
+    int lut3d_size;
+    float *lut3d_r, *lut3d_g, *lut3d_b;
 #endif
 
     int out_width;
@@ -102,6 +111,8 @@ typedef struct VPPContext{
 
     int async_depth;
     int eof;
+
+    char *lut3d_file;            /* file name for 3DLut */
 } VPPContext;
 
 static const AVOption options[] = {
@@ -139,6 +150,8 @@ static const AVOption options[] = {
     { "format", "Output pixel format", OFFSET(output_format_str), AV_OPT_TYPE_STRING, { .str = "same" }, .flags = FLAGS },
     { "async_depth", "Internal parallelization depth, the higher the value the higher the latency.", OFFSET(async_depth), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, .flags = FLAGS },
     { "scale_mode", "scale & format conversion mode: 0=auto, 1=low power, 2=high quality", OFFSET(scale_mode), AV_OPT_TYPE_INT, { .i64 = MFX_SCALING_MODE_DEFAULT }, MFX_SCALING_MODE_DEFAULT, MFX_SCALING_MODE_QUALITY, .flags = FLAGS, "scale mode" },
+    { "lut3d_file", "set 3DLUT file name", OFFSET(lut3d_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, .flags = FLAGS },
+
     { NULL }
 };
 
@@ -321,6 +334,82 @@ static mfxStatus get_mfx_version(const AVFilterContext *ctx, mfxVersion *mfx_ver
     return MFXQueryVersion(device_hwctx->session, mfx_version);
 }
 
+#if QSV_HAVE_3DLUT
+
+#define NEXT_LINE(loop_cond) do {                           \
+    if (!fgets(line, sizeof(line), f)) {                    \
+        av_log(ctx, AV_LOG_ERROR, "Unexpected EOF\n");      \
+        return AVERROR_INVALIDDATA;                         \
+    }                                                       \
+} while (loop_cond)
+
+static int skip_line(const char *p)
+{
+    while (*p && av_isspace(*p))
+        p++;
+    return !*p || *p == '#';
+}
+
+static int parse_cube(AVFilterContext *ctx, FILE *f)
+{
+    VPPContext *vpp = ctx->priv;
+    mfxExtVPP3DLut *lut = &vpp->lut3d_conf;
+    char line[MAX_LINE_SIZE];
+    float min[3] = {0.0, 0.0, 0.0};
+    float max[3] = {1.0, 1.0, 1.0};
+
+    while (fgets(line, sizeof(line), f)) {
+        if (!strncmp(line, "LUT_3D_SIZE", 11)) {
+            int i, ret;
+            const int size = strtol(line + 12, NULL, 0);
+            const int cl_size = size * size * size;
+            vpp->lut3d_size = size;
+            vpp->lut3d_r = av_malloc_array(cl_size, sizeof(*vpp->lut3d_r));
+            vpp->lut3d_g = av_malloc_array(cl_size, sizeof(*vpp->lut3d_g));
+            vpp->lut3d_b = av_malloc_array(cl_size, sizeof(*vpp->lut3d_b));
+
+            if (!vpp->lut3d_r || !vpp->lut3d_g || !vpp->lut3d_b) {
+                av_freep(&vpp->lut3d_r);
+                av_freep(&vpp->lut3d_g);
+                av_freep(&vpp->lut3d_b);
+
+                return AVERROR(ENOMEM);
+            }
+
+            for (i = 0; i < cl_size; i++) {
+                do {
+try_again:
+                    NEXT_LINE(0);
+                    if (!strncmp(line, "DOMAIN_", 7)) {
+                        float *vals = NULL;
+
+                        if (!strncmp(line + 7, "MIN ", 4))
+                            vals = min;
+                        else if (!strncmp(line + 7, "MAX ", 4))
+                            vals = max;
+
+                        if (!vals)
+                            return AVERROR_INVALIDDATA;
+
+                        av_sscanf(line + 11, "%f %f %f", vals, vals + 1, vals + 2);
+                        av_log(ctx, AV_LOG_DEBUG, "min: %f %f %f | max: %f %f %f\n",
+                               min[0], min[1], min[2], max[0], max[1], max[2]);
+                        goto try_again;
+                    } else if (!strncmp(line, "TITLE", 5)) {
+                        goto try_again;
+                    }
+                } while (skip_line(line));
+                if (av_sscanf(line, "%f %f %f", &vpp->lut3d_r[i], &vpp->lut3d_g[i], &vpp->lut3d_b[i]) != 3)
+                    return AVERROR_INVALIDDATA;
+            }
+            break;
+        }
+    }
+
+    return 0;
+}
+#endif
+
 static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
@@ -331,6 +420,7 @@ static int config_output(AVFilterLink *outlink)
     mfxVersion      mfx_version;
     AVFilterLink    *inlink = ctx->inputs[0];
     enum AVPixelFormat in_format;
+    int             ret;
 
     outlink->w          = vpp->out_width;
     outlink->h          = vpp->out_height;
@@ -497,6 +587,63 @@ static int config_output(AVFilterLink *outlink)
         }
     }
 
+    if (vpp->lut3d_file) {
+#if QSV_HAVE_3DLUT
+        // configure 3dlut
+        if (QSV_RUNTIME_VERSION_ATLEAST(mfx_version, 2, 7)) {
+            FILE *file;
+            const char *ext;
+
+            ext = strrchr(vpp->lut3d_file, '.');
+            if (!ext) {
+                av_log(ctx, AV_LOG_ERROR, "Unable to guess the format from the extension\n");
+                return AVERROR(EINVAL);
+            }
+            ext++;
+
+            file = avpriv_fopen_utf8(vpp->lut3d_file, "r");
+            if (!file) {
+                av_log(ctx, AV_LOG_ERROR, "failed to open 3DLut file %s\n", vpp->lut3d_file);
+                return AVERROR(EINVAL);
+            }
+
+            if (!av_strcasecmp(ext, "cube"))
+                ret = parse_cube(ctx, file);
+            else {
+                av_log(ctx, AV_LOG_ERROR, "Unrecognized '.%s' file type\n", ext);
+                fclose(file);
+
+                return AVERROR(EINVAL);
+            }
+
+            fclose(file);
+
+            if (!ret && !vpp->lut3d_size) {
+                av_log(ctx, AV_LOG_ERROR, "Invalid 3D LUT\n");
+                return AVERROR_INVALIDDATA;
+            }
+
+            memset(&vpp->lut3d_conf, 0, sizeof(mfxExtVPP3DLut));
+            vpp->lut3d_conf.Header.BufferId           = MFX_EXTBUFF_VPP_3DLUT;
+            vpp->lut3d_conf.Header.BufferSz           = sizeof(mfxExtVPP3DLut);
+            vpp->lut3d_conf.ChannelMapping            = MFX_3DLUT_CHANNEL_MAPPING_RGB_RGB;
+            vpp->lut3d_conf.BufferType                = MFX_RESOURCE_SYSTEM_SURFACE;
+            vpp->lut3d_conf.SystemBuffer.Channel[0].DataType     = MFX_DATA_TYPE_F32;
+            vpp->lut3d_conf.SystemBuffer.Channel[0].Size         = vpp->lut3d_size;
+            vpp->lut3d_conf.SystemBuffer.Channel[0].DataF32      = vpp->lut3d_r;
+            vpp->lut3d_conf.SystemBuffer.Channel[1].DataType     = MFX_DATA_TYPE_F32;
+            vpp->lut3d_conf.SystemBuffer.Channel[1].Size         = vpp->lut3d_size;
+            vpp->lut3d_conf.SystemBuffer.Channel[1].DataF32      = vpp->lut3d_g;
+            vpp->lut3d_conf.SystemBuffer.Channel[2].DataType     = MFX_DATA_TYPE_F32;
+            vpp->lut3d_conf.SystemBuffer.Channel[2].Size         = vpp->lut3d_size;
+            vpp->lut3d_conf.SystemBuffer.Channel[2].DataF32      = vpp->lut3d_b;
+            param.ext_buf[param.num_ext_buf++] = (mfxExtBuffer *)&vpp->lut3d_conf;
+        } else
+#endif
+        av_log(ctx, AV_LOG_WARNING, "The QSV VPP 3dlut option is "
+               "not supported with this MFX version.\n");
+    }
+
     if (inlink->w != outlink->w || inlink->h != outlink->h || in_format != vpp->out_format) {
         if (QSV_RUNTIME_VERSION_ATLEAST(mfx_version, 1, 19)) {
             memset(&vpp->scale_conf, 0, sizeof(mfxExtVPPScaling));
@@ -511,7 +658,7 @@ static int config_output(AVFilterLink *outlink)
     }
 
     if (vpp->use_frc || vpp->use_crop || vpp->deinterlace || vpp->denoise ||
-        vpp->detail || vpp->procamp || vpp->rotate || vpp->hflip ||
+        vpp->detail || vpp->procamp || vpp->rotate || vpp->hflip || vpp->lut3d_file ||
         inlink->w != outlink->w || inlink->h != outlink->h || in_format != vpp->out_format)
         return ff_qsvvpp_create(ctx, &vpp->qsv, &param);
     else {
@@ -664,6 +811,9 @@ static av_cold void vpp_uninit(AVFilterContext *ctx)
 {
     VPPContext *vpp = ctx->priv;
 
+    av_freep(&vpp->lut3d_r);
+    av_freep(&vpp->lut3d_g);
+    av_freep(&vpp->lut3d_b);
     ff_qsvvpp_free(&vpp->qsv);
 }
 
