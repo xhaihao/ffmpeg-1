@@ -241,6 +241,7 @@ External library support:
   --enable-libgsm          enable GSM de/encoding via libgsm [no]
   --enable-libiec61883     enable iec61883 via libiec61883 [no]
   --enable-libilbc         enable iLBC de/encoding via libilbc [no]
+  --enable-libipp          enable Intel IPP libary based scalin [no]
   --enable-libjack         enable JACK audio sound server [no]
   --enable-libjxl          enable JPEG XL de/encoding via libjxl [no]
   --enable-libklvanc       enable Kernel Labs VANC processing [no]
@@ -1926,6 +1927,7 @@ EXTERNAL_LIBRARY_LIST="
     libgsm
     libiec61883
     libilbc
+    libipp
     libjack
     libjxl
     libklvanc
@@ -3907,6 +3909,7 @@ prewitt_opencl_filter_deps="opencl"
 procamp_vaapi_filter_deps="vaapi"
 program_opencl_filter_deps="opencl"
 pullup_filter_deps="gpl"
+raisr_filter_deps="libipp"
 remap_opencl_filter_deps="opencl"
 removelogo_filter_deps="avcodec avformat swscale"
 repeatfields_filter_deps="gpl"
@@ -6973,6 +6976,16 @@ enabled libopus           && {
         require_pkg_config libopus opus opus_multistream.h opus_multistream_surround_encoder_create
     }
 }
+if enabled libipp; then
+   ipp_header_for_check='ippcore.h'
+   case $target_os in
+       mingw32*|mingw64*)
+           ipp_header_for_check='_mingw.h ippcore.h'
+           ;;
+   esac
+   check_lib libipp "$ipp_header_for_check" ippInit -Wl,--start-group -lippi -lipps -lippcore -lippvm -Wl,--end-group ||
+   die "ERROR: Intel IPP not found"
+fi
 enabled libplacebo        && require_pkg_config libplacebo "libplacebo >= 4.192.0" libplacebo/vulkan.h pl_vulkan_create
 enabled libpulse          && require_pkg_config libpulse libpulse pulse/pulseaudio.h pa_context_new
 enabled libqrencode       && require_pkg_config libqrencode libqrencode qrencode.h QRcode_encodeString
