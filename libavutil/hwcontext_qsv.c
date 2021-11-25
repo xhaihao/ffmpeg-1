@@ -369,7 +369,7 @@ static void qsv_frames_uninit(AVHWFramesContext *ctx)
     av_buffer_unref(&s->child_frames_ref);
 }
 
-static void qsv_pool_release_dummy(void *opaque, uint8_t *data)
+static void qsv_release_dummy(void *opaque, uint8_t *data)
 {
 }
 
@@ -382,7 +382,7 @@ static AVBufferRef *qsv_pool_alloc(void *opaque, size_t size)
     if (s->nb_surfaces_used < hwctx->nb_surfaces) {
         s->nb_surfaces_used++;
         return av_buffer_create((uint8_t*)(s->surfaces_internal + s->nb_surfaces_used - 1),
-                                sizeof(*hwctx->surfaces), qsv_pool_release_dummy, NULL, 0);
+                                sizeof(*hwctx->surfaces), qsv_release_dummy, NULL, 0);
     }
 
     return NULL;
@@ -2272,8 +2272,17 @@ static int qsv_device_create(AVHWDeviceContext *ctx, const char *device,
     child_device = (AVHWDeviceContext*)priv->child_device_ctx->data;
 
     impl = choose_implementation(device, child_device_type);
+    ret = qsv_device_derive_from_child(ctx, impl, child_device, 0);
+    if (ret >= 0) {
+        FFHWDeviceContext *fctx = (FFHWDeviceContext*)ctx;
+        FFHWDeviceContext *fchild_device = (FFHWDeviceContext*)child_device;
+        fctx->source_device = av_buffer_ref(priv->child_device_ctx);
+        fchild_device->derived_devices[ctx->type] = av_buffer_create((uint8_t*)fctx, sizeof(*fctx), qsv_release_dummy, fctx, 0);
+        if (!fchild_device->derived_devices[ctx->type])
+            return AVERROR(ENOMEM);
+    }
 
-    return qsv_device_derive_from_child(ctx, impl, child_device, 0);
+    return ret;
 }
 
 const HWContextType ff_hwcontext_type_qsv = {
