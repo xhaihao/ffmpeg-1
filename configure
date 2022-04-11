@@ -6991,7 +6991,7 @@ enabled libtensorflow     && require libtensorflow tensorflow/c/c_api.h TF_Versi
 enabled libtesseract      && require_pkg_config libtesseract tesseract tesseract/capi.h TessBaseAPICreate
 enabled libtheora         && require libtheora theora/theoraenc.h th_info_init -ltheoraenc -ltheoradec -logg
 enabled libtls            && require_pkg_config libtls libtls tls.h tls_configure
-enabled libtorch          && check_cxxflags -std=c++17 && require_cpp libtorch torch/torch.h "torch::Tensor" -ltorch -lc10 -ltorch_cpu -lstdc++ -lpthread
+enabled libtorch          && check_cxxflags -std=c++17 && require_cpp libtorch torch/torch.h "torch::Tensor" -ltorch -lc10 -ltorch_cpu -lstdc++ -lpthread -Wl,--no-as-needed -lintel-ext-pt-gpu -Wl,--as-needed
 enabled libtwolame        && require libtwolame twolame.h twolame_init -ltwolame &&
                              { check_lib libtwolame twolame.h twolame_encode_buffer_float32_interleaved -ltwolame ||
                                die "ERROR: libtwolame must be installed and version must be >= 0.3.10"; }
