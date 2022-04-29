@@ -56,6 +56,7 @@ static const AVSideDataDescriptor sd_props[] = {
     [AV_FRAME_DATA_SPHERICAL]                   = { "Spherical Mapping",                            AV_SIDE_DATA_PROP_GLOBAL },
     [AV_FRAME_DATA_ICC_PROFILE]                 = { "ICC profile",                                  AV_SIDE_DATA_PROP_GLOBAL },
     [AV_FRAME_DATA_SEI_UNREGISTERED]            = { "H.26[45] User Data Unregistered SEI message",  AV_SIDE_DATA_PROP_MULTI },
+    [AV_FRAME_DATA_SUB_FRAME]                   = { "Sub frame Metadata" },
 };
 
 static void get_frame_defaults(AVFrame *frame)
@@ -356,7 +357,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
         if (   sd_src->type == AV_FRAME_DATA_PANSCAN
             && (src->width != dst->width || src->height != dst->height))
             continue;
-        if (force_copy) {
+        /* Don't copy sub frame side data, otherwise sub frame's pointers in
+         * dst may be invalid. */
+        if (force_copy && sd_src->type != AV_FRAME_DATA_SUB_FRAME) {
             sd_dst = av_frame_new_side_data(dst, sd_src->type,
                                             sd_src->size);
             if (!sd_dst) {

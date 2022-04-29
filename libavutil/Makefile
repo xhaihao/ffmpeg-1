@@ -94,7 +94,8 @@ HEADERS = adler32.h                                                     \
           tea.h                                                         \
           tx.h                                                          \
           film_grain_params.h                                           \
-          video_hint.h
+          video_hint.h							\
+          sub_frame_metadata.h                                          \
 
 ARCH_HEADERS = bswap.h                                                  \
                intmath.h                                                \
@@ -190,6 +191,7 @@ OBJS = adler32.o                                                        \
        video_enc_params.o                                               \
        video_hint.o                                                     \
        film_grain_params.o                                              \
+       sub_frame_metadata.o                                             \
 
 
 OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o

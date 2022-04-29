@@ -228,6 +228,11 @@ enum AVFrameSideDataType {
      * encoding.
      */
     AV_FRAME_DATA_VIDEO_HINT,
+
+    /**
+     * Sub frame of a target frame, as described by AVFrame.
+     */
+    AV_FRAME_DATA_SUB_FRAME,
 };
 
 enum AVActiveFormatDescription {
