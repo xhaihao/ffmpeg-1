@@ -1829,6 +1829,7 @@ EXAMPLE_LIST="
     show_metadata_example
     transcode_aac_example
     transcode_example
+    vaapi_decode_example
     vaapi_encode_example
     vaapi_transcode_example
     qsv_transcode_example
@@ -3993,6 +3994,7 @@ scale_video_example_deps="avutil swscale"
 show_metadata_example_deps="avformat avutil"
 transcode_aac_example_deps="avcodec avformat swresample"
 transcode_example_deps="avfilter avcodec avformat avutil"
+vaapi_decode_example_deps="avcodec avformat avutil"
 vaapi_encode_example_deps="avcodec avutil h264_vaapi_encoder"
 vaapi_transcode_example_deps="avcodec avformat avutil h264_vaapi_encoder"
 qsv_transcode_example_deps="avcodec avformat avutil h264_qsv_encoder"
