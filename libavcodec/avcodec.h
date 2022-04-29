@@ -420,6 +420,12 @@ typedef struct RcOverride{
 #define AV_CODEC_EXPORT_DATA_FILM_GRAIN (1 << 3)
 
 /**
+ * Decoding only.
+ * export sub frame through frame side data.
+ */
+#define AV_CODEC_EXPORT_DATA_SUB_FRAME (1 << 4)
+
+/**
  * The decoder will keep a reference to the frame and may reuse it later.
  */
 #define AV_GET_BUFFER_FLAG_REF (1 << 0)
@@ -2075,6 +2081,13 @@ typedef struct AVCodecContext {
      */
     AVFrameSideData  **decoded_side_data;
     int             nb_decoded_side_data;
+    /**
+     * Set sub frame's parameters like: width/height/format etc.
+     *
+     * - decoding: set by user
+     * - encoding: unused
+     */
+    AVDictionary *sub_frame_opts;
 } AVCodecContext;
 
 /**

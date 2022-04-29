@@ -93,6 +93,7 @@ static const AVOption avcodec_options[] = {
 {"prft", "export Producer Reference Time through packet side data", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_EXPORT_DATA_PRFT}, INT_MIN, INT_MAX, A|V|S|E, .unit = "export_side_data"},
 {"venc_params", "export video encoding parameters through frame side data", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_EXPORT_DATA_VIDEO_ENC_PARAMS}, INT_MIN, INT_MAX, V|D, .unit = "export_side_data"},
 {"film_grain", "export film grain parameters through frame side data", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_EXPORT_DATA_FILM_GRAIN}, INT_MIN, INT_MAX, V|D, .unit = "export_side_data"},
+{"sub_frame", "export sub frame through frame side data", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_EXPORT_DATA_SUB_FRAME}, INT_MIN, INT_MAX, V|D, .unit = "export_side_data"},
 {"time_base", NULL, OFFSET(time_base), AV_OPT_TYPE_RATIONAL, {.dbl = 0}, 0, INT_MAX},
 {"g", "set the group of picture (GOP) size", OFFSET(gop_size), AV_OPT_TYPE_INT, {.i64 = 12 }, INT_MIN, INT_MAX, V|E},
 {"ar", "set audio sampling rate (in Hz)", OFFSET(sample_rate), AV_OPT_TYPE_INT, {.i64 = DEFAULT }, 0, INT_MAX, A|D|E},
@@ -411,6 +412,7 @@ static const AVOption avcodec_options[] = {
     {"mastering_display_metadata",  .default_val.i64 = AV_PKT_DATA_MASTERING_DISPLAY_METADATA,  .type = AV_OPT_TYPE_CONST, .flags = A|D, .unit = "side_data_pkt" },
     {"content_light_level",         .default_val.i64 = AV_PKT_DATA_CONTENT_LIGHT_LEVEL,         .type = AV_OPT_TYPE_CONST, .flags = A|D, .unit = "side_data_pkt" },
     {"icc_profile",                 .default_val.i64 = AV_PKT_DATA_ICC_PROFILE,                 .type = AV_OPT_TYPE_CONST, .flags = A|D, .unit = "side_data_pkt" },
+{"sub_frame_opts", "set sub frame opts", OFFSET(sub_frame_opts), AV_OPT_TYPE_DICT, {.str = NULL}, -1, INT_MAX, V|D},
 {NULL},
 };
 
