@@ -274,15 +274,12 @@ static int vaapi_av1_start_frame(AVCodecContext *avctx,
     };
 
     for (int i = 0; i < AV1_NUM_REF_FRAMES; i++) {
-        if (pic_param.pic_info_fields.bits.frame_type == AV1_FRAME_KEY)
-            pic_param.ref_frame_map[i] = VA_INVALID_ID;
-        else
-            pic_param.ref_frame_map[i] = ctx->ref_tab[i].valid ?
-                                         ff_vaapi_get_surface_id(ctx->ref_tab[i].frame) :
-                                         vaapi_av1_surface_id(&s->ref[i]);
+        pic_param.ref_frame_map[i] = ctx->ref_tab[i].valid ?
+            ff_vaapi_get_surface_id(ctx->ref_tab[i].frame) :
+            vaapi_av1_surface_id(&s->ref[i]);
     }
     for (int i = 0; i < AV1_REFS_PER_FRAME; i++) {
-        pic_param.ref_frame_idx[i] = frame_header->ref_frame_idx[i];
+        pic_param.ref_frame_idx[i] = (pic_param.pic_info_fields.bits.frame_type == AV1_FRAME_KEY ? 255 : frame_header->ref_frame_idx[i]);
     }
     for (int i = 0; i < AV1_TOTAL_REFS_PER_FRAME; i++) {
         pic_param.ref_deltas[i] = frame_header->loop_filter_ref_deltas[i];
