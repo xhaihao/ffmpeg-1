@@ -47,6 +47,8 @@ typedef struct THContext {
     THOptions options;
 } THContext;
 
+typedef enum {UNKNOWN_MODEL = -1, BASICVSR, FRVSR} ModelType;
+
 typedef struct THModel {
     THContext ctx;
     DNNModel *model;
@@ -54,6 +56,7 @@ typedef struct THModel {
     SafeQueue *request_queue;
     Queue *task_queue;
     Queue *lltask_queue;
+    ModelType model_type;
 } THModel;
 
 typedef struct THInferRequest {
@@ -247,6 +250,7 @@ static int th_start_inference(void *args)
     THContext *ctx = NULL;
     std::vector<torch::jit::IValue> inputs;
     torch::NoGradGuard no_grad;
+    c10::DeviceType device_type;
 
     if (!request) {
         av_log(NULL, AV_LOG_ERROR, "THRequestItem is NULL\n");
@@ -257,6 +261,7 @@ static int th_start_inference(void *args)
     task = lltask->task;
     th_model = (THModel *)task->model;
     ctx = &th_model->ctx;
+    device_type = ctx->options.device_type;
 
     if (ctx->options.optimize)
         torch::jit::setGraphExecutorOptimize(true);
@@ -269,7 +274,24 @@ static int th_start_inference(void *args)
     }
     inputs.push_back(*infer_request->input_tensor);
 
-    *infer_request->output = th_model->jit_model->forward(inputs).toTensor();
+    if (th_model->model_type == FRVSR) {
+        auto size = infer_request->input_tensor->sizes();
+        int height = size[2];
+        int width  = size[3];
+        torch::Tensor lr_prev = torch::zeros({1, 3, height, width}, torch::TensorOptions().dtype(torch::kFloat32)
+                                                                                          .device(device_type));
+        torch::Tensor hr_prev = torch::zeros({1, 3, height * 4, width * 4}, torch::TensorOptions().dtype(torch::kFloat32)
+                                                                                                  .device(device_type));
+        inputs.push_back(lr_prev);
+        inputs.push_back(hr_prev);
+    }
+
+    auto outputs = th_model->jit_model->forward(inputs);
+    if (th_model->model_type == FRVSR) {
+        *infer_request->output = outputs.toTuple()->elements()[0].toTensor();
+    } else {
+        *infer_request->output = outputs.toTensor();
+    }
 
     return 0;
 }
@@ -436,6 +458,7 @@ static DNNModel *dnn_load_model_th(const char *model_filename, DNNFunctionType f
     THModel *th_model = NULL;
     THRequestItem *item = NULL;
     THContext *ctx;
+    torch::jit::NameTensor first_param;
 
     model = (DNNModel *)av_mallocz(sizeof(DNNModel));
     if (!model) {
@@ -481,6 +504,7 @@ static DNNModel *dnn_load_model_th(const char *model_filename, DNNFunctionType f
         av_log(ctx, AV_LOG_ERROR, "Failed to load torch model\n");
         goto fail;
     }
+    first_param = *th_model->jit_model->named_parameters().begin();
 
     th_model->request_queue = ff_safe_queue_create();
     if (!th_model->request_queue) {
@@ -514,6 +538,14 @@ static DNNModel *dnn_load_model_th(const char *model_filename, DNNFunctionType f
     th_model->lltask_queue = ff_queue_create();
     if (!th_model->lltask_queue) {
         goto fail;
+    }
+
+    if (!first_param.name.find("fnet")) {
+        th_model->model_type = FRVSR;
+    } else if (!first_param.name.find("spynet")) {
+        th_model->model_type = BASICVSR;
+    } else {
+        th_model->model_type = UNKNOWN_MODEL;
     }
 
     model->get_input = &get_input_th;
