@@ -219,6 +219,18 @@ typedef struct AVHWFramesContext {
 } AVHWFramesContext;
 
 /**
+ * Get the device type by a given pixel format.
+ *
+ * This function only returns a preferred device type which supports the given
+ * pixel format. There is no guarantee that the device type is unique.
+ *
+ * @param fmt Pixel format from enum AVPixelFormat.
+ * @return The type from enum AVHWDeviceType, or AV_HWDEVICE_TYPE_NONE if
+ *         not found.
+ */
+enum AVHWDeviceType av_hwdevice_get_type_by_pix_fmt(enum AVPixelFormat fmt);
+
+/**
  * Look up an AVHWDeviceType by name.
  *
  * @param name String name of the device type (case-insensitive).
