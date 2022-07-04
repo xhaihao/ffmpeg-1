@@ -393,24 +393,22 @@ static int formats_declared(AVFilterContext *f)
 
 static int insert_auto_filter(AVFilterContext **convert, AVFilterGraph *graph,
                               AVFilterLink *link, const AVFilterNegotiation *neg,
-                              int *converter_count, void *log_ctx)
+                              unsigned conv_step, int *converter_count, void *log_ctx)
 {
     int ret;
     const AVFilter *filter;
     AVFilterContext *ctx;
     AVFilterLink *inlink, *outlink;
     char inst_name[30];
-    const char *opts;
+    const char *opts = FF_FIELD_AT(char *, neg->conversion_filters[conv_step].conversion_opts_offset, *graph);
+    const char *name = neg->conversion_filters[conv_step].conversion_filter;
 
-    if (!(filter = avfilter_get_by_name(neg->conversion_filter))) {
+    if (!(filter = avfilter_get_by_name(name))) {
         av_log(log_ctx, AV_LOG_ERROR,
-               "'%s' filter not present, cannot convert formats.\n",
-               neg->conversion_filter);
+               "'%s' filter not present, cannot convert formats.\n", name);
         return AVERROR(EINVAL);
     }
-    snprintf(inst_name, sizeof(inst_name), "auto_%s_%d",
-             neg->conversion_filter, (*converter_count)++);
-    opts = FF_FIELD_AT(char *, neg->conversion_opts_offset, *graph);
+    snprintf(inst_name, sizeof(inst_name), "auto_%s_%d", name, (*converter_count)++);
     ret = avfilter_graph_create_filter(&ctx, filter, inst_name, opts, NULL, graph);
     if (ret < 0)
         return ret;
@@ -505,7 +503,7 @@ static int query_formats(AVFilterGraph *graph, void *log_ctx)
         for (j = 0; j < filter->nb_inputs; j++) {
             AVFilterLink *link = filter->inputs[j];
             const AVFilterNegotiation *neg;
-            unsigned neg_step;
+            unsigned neg_step, conv_step;
             int convert_needed = 0;
 
             if (!link)
@@ -541,8 +539,6 @@ static int query_formats(AVFilterGraph *graph, void *log_ctx)
             }
 
             if (convert_needed) {
-                AVFilterContext *convert;
-
                 if (fffiltergraph(graph)->disable_auto_convert) {
                     av_log(log_ctx, AV_LOG_ERROR,
                            "The filters '%s' and '%s' do not have a common format "
@@ -552,20 +548,52 @@ static int query_formats(AVFilterGraph *graph, void *log_ctx)
                 }
 
                 /* couldn't merge format lists. auto-insert conversion filter */
-                ret = insert_auto_filter(&convert, graph, link, neg, &converter_count, log_ctx);
-                if (ret < 0) {
-                    av_log(log_ctx, AV_LOG_ERROR, "Failed to insert an auto filter.\n");
-                    return ret;
-                }
+                for (conv_step = 0; conv_step < neg->nb_conversion_filters; conv_step++) {
+                    AVFilterContext *convert;
+                    ret = insert_auto_filter(&convert, graph, link, neg,
+                                             conv_step, &converter_count, log_ctx);
+                    if (ret < 0) {
+                        av_log(log_ctx, AV_LOG_ERROR, "Failed to insert an auto filter.\n");
+                        return ret;
+                    }
 
-                ret = merge_auto_filter(convert, neg);
-                if (ret < 0)
-                    return ret;
-                else if (ret == 0) {
-                    av_log(log_ctx, AV_LOG_ERROR,
-                           "Impossible to convert between the formats supported by the filter "
-                           "'%s' and the filter '%s'\n", link->src->name, link->dst->name);
-                    return AVERROR(ENOSYS);
+                    ret = merge_auto_filter(convert, neg);
+                    if (ret < 0)
+                        return ret;
+                    else if (ret > 0)
+                        break;
+                    else if (conv_step < neg->nb_conversion_filters - 1) {
+                        AVFilterLink *inlink  = convert->inputs[0];
+                        AVFilterLink *outlink = convert->outputs[0];
+                        av_log(log_ctx, AV_LOG_VERBOSE,
+                               "Impossible to convert between the formats supported by the filter "
+                               "'%s' and the filter '%s', try another conversion filter.\n",
+                               link->src->name, link->dst->name);
+                        unsigned dstpad_idx = outlink->dstpad - outlink->dst->input_pads;
+                        converter_count--;
+                        /* re-hookup the link */
+                        inlink->dst                      = outlink->dst;
+                        inlink->dstpad                   = &outlink->dst->input_pads[dstpad_idx];
+                        outlink->dst->inputs[dstpad_idx] = inlink;
+                        if (outlink->outcfg.formats)
+                            ff_formats_changeref(&outlink->outcfg.formats,
+                                                 &inlink->outcfg.formats);
+                        if (outlink->outcfg.samplerates)
+                            ff_formats_changeref(&outlink->outcfg.samplerates,
+                                                 &inlink->outcfg.samplerates);
+                        if (outlink->outcfg.channel_layouts)
+                            ff_channel_layouts_changeref(&outlink->outcfg.channel_layouts,
+                                                         &inlink->outcfg.channel_layouts);
+                        /* remove the previous auto filter */
+                        convert->inputs[0]       = NULL;
+                        convert->outputs[0]->dst = NULL;
+                        avfilter_free(convert);
+                    } else {
+                        av_log(log_ctx, AV_LOG_ERROR,
+                               "Impossible to convert between the formats supported by the filter "
+                               "'%s' and the filter '%s'\n", link->src->name, link->dst->name);
+                        return AVERROR(ENOSYS);
+                    }
                 }
             }
         }

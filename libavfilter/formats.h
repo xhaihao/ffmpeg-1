@@ -388,6 +388,12 @@ typedef struct AVFilterFormatMerger {
     int (*can_merge)(const void *a, const void *b);
 } AVFilterFormatsMerger;
 
+typedef struct AVFilterFormatFilter {
+    const char *conversion_filter;
+    unsigned conversion_opts_offset;
+} AVFilterFormatsFilter;
+
+
 /**
  * Callbacks and properties to describe the steps of a format negotiation.
  *
@@ -476,8 +482,8 @@ typedef struct AVFilterFormatMerger {
 typedef struct AVFilterNegotiation {
     unsigned nb_mergers;
     const AVFilterFormatsMerger *mergers;
-    const char *conversion_filter;
-    unsigned conversion_opts_offset;
+    unsigned nb_conversion_filters;
+    const AVFilterFormatsFilter *conversion_filters;
 } AVFilterNegotiation;
 
 const AVFilterNegotiation *ff_filter_get_negotiation(AVFilterLink *link);
