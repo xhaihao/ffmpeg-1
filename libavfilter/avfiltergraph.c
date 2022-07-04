@@ -391,6 +391,83 @@ static int formats_declared(AVFilterContext *f)
     return 1;
 }
 
+static int insert_auto_filter(AVFilterContext **convert, AVFilterGraph *graph,
+                              AVFilterLink *link, const AVFilterNegotiation *neg,
+                              int *converter_count, void *log_ctx)
+{
+    int ret;
+    const AVFilter *filter;
+    AVFilterContext *ctx;
+    AVFilterLink *inlink, *outlink;
+    char inst_name[30];
+    const char *opts;
+
+    if (!(filter = avfilter_get_by_name(neg->conversion_filter))) {
+        av_log(log_ctx, AV_LOG_ERROR,
+               "'%s' filter not present, cannot convert formats.\n",
+               neg->conversion_filter);
+        return AVERROR(EINVAL);
+    }
+    snprintf(inst_name, sizeof(inst_name), "auto_%s_%d",
+             neg->conversion_filter, (*converter_count)++);
+    opts = FF_FIELD_AT(char *, neg->conversion_opts_offset, *graph);
+    ret = avfilter_graph_create_filter(&ctx, filter, inst_name, opts, NULL, graph);
+    if (ret < 0)
+        return ret;
+
+    if ((ret = avfilter_insert_filter(link, ctx, 0, 0)) < 0)
+        return ret;
+
+    if ((ret = filter_query_formats(ctx)) < 0)
+        return ret;
+
+    inlink  = ctx->inputs[0];
+    outlink = ctx->outputs[0];
+    av_assert0( inlink->incfg.formats->refcount > 0);
+    av_assert0( inlink->outcfg.formats->refcount > 0);
+    av_assert0(outlink->incfg.formats->refcount > 0);
+    av_assert0(outlink->outcfg.formats->refcount > 0);
+    if (outlink->type == AVMEDIA_TYPE_VIDEO) {
+        av_assert0( inlink-> incfg.color_spaces->refcount > 0);
+        av_assert0( inlink->outcfg.color_spaces->refcount > 0);
+        av_assert0(outlink-> incfg.color_spaces->refcount > 0);
+        av_assert0(outlink->outcfg.color_spaces->refcount > 0);
+        av_assert0( inlink-> incfg.color_ranges->refcount > 0);
+        av_assert0( inlink->outcfg.color_ranges->refcount > 0);
+        av_assert0(outlink-> incfg.color_ranges->refcount > 0);
+        av_assert0(outlink->outcfg.color_ranges->refcount > 0);
+    } else if (outlink->type == AVMEDIA_TYPE_AUDIO) {
+        av_assert0( inlink-> incfg.samplerates->refcount > 0);
+        av_assert0( inlink->outcfg.samplerates->refcount > 0);
+        av_assert0(outlink-> incfg.samplerates->refcount > 0);
+        av_assert0(outlink->outcfg.samplerates->refcount > 0);
+        av_assert0( inlink-> incfg.channel_layouts->refcount > 0);
+        av_assert0( inlink->outcfg.channel_layouts->refcount > 0);
+        av_assert0(outlink-> incfg.channel_layouts->refcount > 0);
+        av_assert0(outlink->outcfg.channel_layouts->refcount > 0);
+    }
+
+    *convert = ctx;
+    return 0;
+}
+
+static int merge_auto_filter(AVFilterContext *convert, const AVFilterNegotiation *neg)
+{
+    int ret;
+    AVFilterLink *inlink  = convert->inputs[0];
+    AVFilterLink *outlink = convert->outputs[0];
+#define MERGE(merger, link)                                                  \
+    ((merger)->merge(FF_FIELD_AT(void *, (merger)->offset, (link)->incfg),   \
+                     FF_FIELD_AT(void *, (merger)->offset, (link)->outcfg)))
+    for (unsigned neg_step = 0; neg_step < neg->nb_mergers; neg_step++) {
+        const AVFilterFormatsMerger *m = &neg->mergers[neg_step];
+        if ((ret = MERGE(m,  inlink)) <= 0 ||
+            (ret = MERGE(m, outlink)) <= 0)
+                break;
+    }
+    return ret;
+}
+
 /**
  * Perform one round of query_formats() and merging formats lists on the
  * filter graph.
@@ -465,10 +542,6 @@ static int query_formats(AVFilterGraph *graph, void *log_ctx)
 
             if (convert_needed) {
                 AVFilterContext *convert;
-                const AVFilter *filter;
-                AVFilterLink *inlink, *outlink;
-                char inst_name[30];
-                const char *opts;
 
                 if (fffiltergraph(graph)->disable_auto_convert) {
                     av_log(log_ctx, AV_LOG_ERROR,
@@ -479,63 +552,20 @@ static int query_formats(AVFilterGraph *graph, void *log_ctx)
                 }
 
                 /* couldn't merge format lists. auto-insert conversion filter */
-                if (!(filter = avfilter_get_by_name(neg->conversion_filter))) {
-                    av_log(log_ctx, AV_LOG_ERROR,
-                           "'%s' filter not present, cannot convert formats.\n",
-                           neg->conversion_filter);
-                    return AVERROR(EINVAL);
+                ret = insert_auto_filter(&convert, graph, link, neg, &converter_count, log_ctx);
+                if (ret < 0) {
+                    av_log(log_ctx, AV_LOG_ERROR, "Failed to insert an auto filter.\n");
+                    return ret;
                 }
-                snprintf(inst_name, sizeof(inst_name), "auto_%s_%d",
-                         neg->conversion_filter, converter_count++);
-                opts = FF_FIELD_AT(char *, neg->conversion_opts_offset, *graph);
-                ret = avfilter_graph_create_filter(&convert, filter, inst_name, opts, NULL, graph);
+
+                ret = merge_auto_filter(convert, neg);
                 if (ret < 0)
                     return ret;
-                if ((ret = avfilter_insert_filter(link, convert, 0, 0)) < 0)
-                    return ret;
-
-                if ((ret = filter_query_formats(convert)) < 0)
-                    return ret;
-
-                inlink  = convert->inputs[0];
-                outlink = convert->outputs[0];
-                av_assert0( inlink->incfg.formats->refcount > 0);
-                av_assert0( inlink->outcfg.formats->refcount > 0);
-                av_assert0(outlink->incfg.formats->refcount > 0);
-                av_assert0(outlink->outcfg.formats->refcount > 0);
-                if (outlink->type == AVMEDIA_TYPE_VIDEO) {
-                    av_assert0( inlink-> incfg.color_spaces->refcount > 0);
-                    av_assert0( inlink->outcfg.color_spaces->refcount > 0);
-                    av_assert0(outlink-> incfg.color_spaces->refcount > 0);
-                    av_assert0(outlink->outcfg.color_spaces->refcount > 0);
-                    av_assert0( inlink-> incfg.color_ranges->refcount > 0);
-                    av_assert0( inlink->outcfg.color_ranges->refcount > 0);
-                    av_assert0(outlink-> incfg.color_ranges->refcount > 0);
-                    av_assert0(outlink->outcfg.color_ranges->refcount > 0);
-                } else if (outlink->type == AVMEDIA_TYPE_AUDIO) {
-                    av_assert0( inlink-> incfg.samplerates->refcount > 0);
-                    av_assert0( inlink->outcfg.samplerates->refcount > 0);
-                    av_assert0(outlink-> incfg.samplerates->refcount > 0);
-                    av_assert0(outlink->outcfg.samplerates->refcount > 0);
-                    av_assert0( inlink-> incfg.channel_layouts->refcount > 0);
-                    av_assert0( inlink->outcfg.channel_layouts->refcount > 0);
-                    av_assert0(outlink-> incfg.channel_layouts->refcount > 0);
-                    av_assert0(outlink->outcfg.channel_layouts->refcount > 0);
-                }
-#define MERGE(merger, link)                                                  \
-    ((merger)->merge(FF_FIELD_AT(void *, (merger)->offset, (link)->incfg),   \
-                     FF_FIELD_AT(void *, (merger)->offset, (link)->outcfg)))
-                for (neg_step = 0; neg_step < neg->nb_mergers; neg_step++) {
-                    const AVFilterFormatsMerger *m = &neg->mergers[neg_step];
-                    if ((ret = MERGE(m,  inlink)) <= 0 ||
-                        (ret = MERGE(m, outlink)) <= 0) {
-                        if (ret < 0)
-                            return ret;
-                        av_log(log_ctx, AV_LOG_ERROR,
-                               "Impossible to convert between the formats supported by the filter "
-                               "'%s' and the filter '%s'\n", link->src->name, link->dst->name);
-                        return AVERROR(ENOSYS);
-                    }
+                else if (ret == 0) {
+                    av_log(log_ctx, AV_LOG_ERROR,
+                           "Impossible to convert between the formats supported by the filter "
+                           "'%s' and the filter '%s'\n", link->src->name, link->dst->name);
+                    return AVERROR(ENOSYS);
                 }
             }
         }
