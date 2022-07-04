@@ -400,7 +400,8 @@ static int insert_auto_filter(AVFilterContext **convert, AVFilterGraph *graph,
     AVFilterContext *ctx;
     AVFilterLink *inlink, *outlink;
     char inst_name[30];
-    const char *opts = FF_FIELD_AT(char *, neg->conversion_filters[conv_step].conversion_opts_offset, *graph);
+    const char *opts = neg->conversion_filters[conv_step].conversion_opts_offset == 0 ? NULL :
+                       FF_FIELD_AT(char *, neg->conversion_filters[conv_step].conversion_opts_offset, *graph);
     const char *name = neg->conversion_filters[conv_step].conversion_filter;
 
     if (!(filter = avfilter_get_by_name(name))) {
