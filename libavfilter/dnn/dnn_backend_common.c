@@ -60,7 +60,10 @@ int ff_dnn_fill_task(TaskItem *task, DNNExecBaseParams *exec_params, void *backe
     task->input_name = exec_params->input_name;
     task->in_frame = exec_params->in_frame;
     task->out_frame = exec_params->out_frame;
+    task->in_queue = exec_params->in_queue;
+    task->out_queue = exec_params->out_queue;
     task->model = backend_model;
+    task->nb_input = exec_params->nb_input;
     task->nb_output = exec_params->nb_output;
     task->output_names = exec_params->output_names;
 
@@ -147,8 +150,21 @@ DNNAsyncStatusType ff_dnn_get_result_common(Queue *task_queue, AVFrame **in, AVF
 
     *in = task->in_frame;
     *out = task->out_frame;
-    ff_queue_pop_front(task_queue);
-    av_freep(&task);
+    if (task->in_queue || task->out_queue) {
+        if (av_fifo_can_read(task->out_queue))
+            av_fifo_read(task->out_queue, out, 1);
+        if (av_fifo_can_read(task->in_queue))
+            av_fifo_read(task->in_queue, in, 1);
+        if (!av_fifo_can_read(task->out_queue) && !av_fifo_can_read(task->in_queue)) {
+            ff_queue_pop_front(task_queue);
+            av_fifo_freep2(&task->in_queue);
+            av_fifo_freep2(&task->out_queue);
+            av_freep(&task);
+        }
+    } else {
+        ff_queue_pop_front(task_queue);
+        av_freep(&task);
+    }
 
     return DAST_SUCCESS;
 }

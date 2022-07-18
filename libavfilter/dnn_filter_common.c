@@ -128,20 +128,49 @@ int ff_dnn_get_output(DnnContext *ctx, int input_width, int input_height, int *o
 {
     char * output_name = ctx->model_outputnames && ctx->backend_type != DNN_TH ?
                          ctx->model_outputnames[0] : NULL;
-    return ctx->model->get_output(ctx->model->model, ctx->model_inputname, input_width, input_height,
+    return ctx->model->get_output(ctx->model->model, ctx->model_inputname, input_width, input_height, ctx->nb_inputs,
                                     (const char *)output_name, output_width, output_height);
 }
 
 int ff_dnn_execute_model(DnnContext *ctx, AVFrame *in_frame, AVFrame *out_frame)
 {
-    DNNExecBaseParams exec_params = {
-        .input_name     = ctx->model_inputname,
-        .output_names   = (const char **)ctx->model_outputnames,
-        .nb_output      = ctx->nb_outputs,
-        .in_frame       = in_frame,
-        .out_frame      = out_frame,
-    };
-    return (ctx->dnn_module->execute_model)(ctx->model, &exec_params);
+    int ret = 0;
+    if (ctx->nb_inputs > 0) {
+        if (!ctx->in_queue) {
+            ctx->in_queue = av_fifo_alloc2(ctx->nb_inputs, sizeof(AVFrame *), AV_FIFO_FLAG_AUTO_GROW);
+            if (!ctx->in_queue)
+                return AVERROR(ENOMEM);
+        }
+        if (!ctx->out_queue) {
+            ctx->out_queue = av_fifo_alloc2(ctx->nb_inputs, sizeof(AVFrame *), AV_FIFO_FLAG_AUTO_GROW);
+            if (!ctx->out_queue)
+                return AVERROR(ENOMEM);
+        }
+        if (av_fifo_can_read(ctx->in_queue) < ctx->nb_inputs) {
+            ret = av_fifo_write(ctx->in_queue, &in_frame, 1);
+            if (ret < 0)
+                return ret;
+            ret = av_fifo_write(ctx->out_queue, &out_frame, 1);
+            if (ret < 0)
+                return ret;
+        }
+    }
+    if (!ctx->nb_inputs || av_fifo_can_read(ctx->in_queue) == ctx->nb_inputs) {
+        DNNExecBaseParams exec_params = {
+            .input_name     = ctx->model_inputname,
+            .output_names   = (const char **)ctx->model_outputnames,
+            .nb_input       = ctx->nb_inputs,
+            .nb_output      = ctx->nb_outputs,
+            .in_frame       = in_frame,
+            .out_frame      = out_frame,
+            .in_queue       = ctx->in_queue,
+            .out_queue      = ctx->out_queue,
+        };
+        ctx->in_queue = NULL;
+        ctx->out_queue = NULL;
+        return (ctx->dnn_module->execute_model)(ctx->model, &exec_params);
+    } else
+        return 0;
 }
 
 int ff_dnn_execute_model_classification(DnnContext *ctx, AVFrame *in_frame, AVFrame *out_frame, const char *target)
@@ -166,11 +195,45 @@ DNNAsyncStatusType ff_dnn_get_result(DnnContext *ctx, AVFrame **in_frame, AVFram
 
 int ff_dnn_flush(DnnContext *ctx)
 {
+    if (ctx->in_queue && av_fifo_can_read(ctx->in_queue) &&
+        ctx->out_queue && av_fifo_can_read(ctx->out_queue)) {
+        DNNExecBaseParams exec_params = {
+            .input_name     = ctx->model_inputname,
+            .output_names   = (const char **)ctx->model_outputnames,
+            .nb_input       = ctx->nb_inputs,
+            .nb_output      = ctx->nb_outputs,
+            .in_queue       = ctx->in_queue,
+            .out_queue      = ctx->out_queue,
+        };
+        av_fifo_peek(ctx->in_queue, &exec_params.in_frame, 1,
+                     av_fifo_can_read(ctx->in_queue) - 1);
+        av_fifo_peek(ctx->out_queue, &exec_params.out_frame, 1,
+                     av_fifo_can_read(ctx->out_queue) - 1);
+        ctx->in_queue = NULL;
+        ctx->out_queue = NULL;
+        if ((ctx->dnn_module->execute_model)(ctx->model, &exec_params) != 0)
+            return AVERROR(EIO);
+    }
     return (ctx->dnn_module->flush)(ctx->model);
 }
 
 void ff_dnn_uninit(DnnContext *ctx)
 {
+    AVFrame *temp_frame;
+    if (ctx->in_queue) {
+        while (av_fifo_can_read(ctx->in_queue)) {
+            av_fifo_read(ctx->in_queue, &temp_frame, 1);
+            av_frame_free(&temp_frame);
+        }
+        av_fifo_freep2(&ctx->in_queue);
+    }
+    if (ctx->out_queue) {
+        while(av_fifo_can_read(ctx->out_queue)) {
+            av_fifo_read(ctx->out_queue, &temp_frame, 1);
+            av_frame_free(&temp_frame);
+        }
+        av_fifo_freep2(&ctx->out_queue);
+    }
     if (ctx->dnn_module) {
         (ctx->dnn_module->free_model)(&ctx->model);
     }

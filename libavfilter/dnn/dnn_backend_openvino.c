@@ -1277,7 +1277,7 @@ static int extract_lltask_from_task(DNNFunctionType func_type, TaskItem *task, Q
     }
 }
 
-static int get_output_ov(void *model, const char *input_name, int input_width, int input_height,
+static int get_output_ov(void *model, const char *input_name, int input_width, int input_height, int nb_input,
                                    const char *output_name, int *output_width, int *output_height)
 {
 #if HAVE_OPENVINO2

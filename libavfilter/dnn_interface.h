@@ -28,6 +28,7 @@
 
 #include <stdint.h>
 #include "libavutil/frame.h"
+#include "libavutil/fifo.h"
 #include "avfilter.h"
 
 #define DNN_GENERIC_ERROR FFERRTAG('D','N','N','!')
@@ -76,9 +77,12 @@ typedef struct DNNData{
 typedef struct DNNExecBaseParams {
     const char *input_name;
     const char **output_names;
+    uint32_t nb_input;
     uint32_t nb_output;
     AVFrame *in_frame;
     AVFrame *out_frame;
+    AVFifo *in_queue;
+    AVFifo *out_queue;
 } DNNExecBaseParams;
 
 typedef struct DNNExecClassificationParams {
@@ -103,7 +107,7 @@ typedef struct DNNModel{
     // Just reuse struct DNNData here, actually the DNNData.data field is not needed.
     int (*get_input)(void *model, DNNData *input, const char *input_name);
     // Gets model output width/height with given input w/h
-    int (*get_output)(void *model, const char *input_name, int input_width, int input_height,
+    int (*get_output)(void *model, const char *input_name, int input_width, int input_height, int nb_input,
                                 const char *output_name, int *output_width, int *output_height);
     // set the pre process to transfer data from AVFrame to DNNData
     // the default implementation within DNN is used if it is not provided by the filter

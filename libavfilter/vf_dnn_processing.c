@@ -27,6 +27,7 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/avassert.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/fifo.h"
 #include "filters.h"
 #include "dnn_filter_common.h"
 #include "internal.h"
@@ -59,7 +60,6 @@ static const AVOption dnn_processing_options[] = {
 };
 
 AVFILTER_DEFINE_CLASS(dnn_processing);
-
 static av_cold int init(AVFilterContext *context)
 {
     DnnProcessingContext *ctx = context->priv;
@@ -348,7 +348,6 @@ static int activate(AVFilterContext *filter_ctx)
 static av_cold void uninit(AVFilterContext *ctx)
 {
     DnnProcessingContext *context = ctx->priv;
-
     sws_freeContext(context->sws_uv_scale);
     ff_dnn_uninit(&context->dnnctx);
 }

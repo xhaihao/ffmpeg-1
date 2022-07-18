@@ -30,6 +30,7 @@ extern "C" {
 #include "../internal.h"
 #include "dnn_io_proc.h"
 #include "dnn_backend_common.h"
+#include "libavutil/fifo.h"
 #include "libavutil/opt.h"
 #include "libavutil/mem.h"
 #include "queue.h"
@@ -187,6 +188,9 @@ static int fill_model_input_th(THModel *th_model, THRequestItem *request)
     DNNData input = { 0 };
     THContext *ctx = &th_model->ctx;
     int ret, width_idx, height_idx, channel_idx;
+    size_t offset = 0;
+    AVFrame *tmp_frame = NULL;
+    void *in_data;
 
     lltask = (LastLevelTaskItem *)ff_queue_pop_front(th_model->lltask_queue);
     if (!lltask) {
@@ -207,9 +211,10 @@ static int fill_model_input_th(THModel *th_model, THRequestItem *request)
     input.dims[height_idx] = task->in_frame->height;
     input.dims[width_idx] = task->in_frame->width;
     input.data = av_malloc(input.dims[height_idx] * input.dims[width_idx] *
-                           input.dims[channel_idx] * sizeof(float));
+                           input.dims[channel_idx] * sizeof(float) * task->nb_input);
     if (!input.data)
         return AVERROR(ENOMEM);
+    in_data = input.data;
     infer_request->input_tensor = new torch::Tensor();
     infer_request->output = new torch::Tensor();
 
@@ -220,7 +225,15 @@ static int fill_model_input_th(THModel *th_model, THRequestItem *request)
             if (th_model->model->frame_pre_proc != NULL) {
                 th_model->model->frame_pre_proc(task->in_frame, &input, th_model->model->filter_ctx);
             } else {
-                ff_proc_from_frame_to_dnn(task->in_frame, &input, ctx);
+                size_t in_queue_nb = av_fifo_can_read(task->in_queue);
+                do {
+                    av_fifo_peek(task->in_queue, &tmp_frame, 1,
+                                 offset >= in_queue_nb ? in_queue_nb - 1 : offset);
+                    ff_proc_from_frame_to_dnn(tmp_frame, &input, ctx);
+                    input.data += input.dims[height_idx] * input.dims[width_idx] * input.dims[channel_idx] * sizeof(float);
+                    offset++;
+                } while (task->nb_input > offset);
+                input.data = in_data;
             }
         }
         break;
@@ -228,9 +241,15 @@ static int fill_model_input_th(THModel *th_model, THRequestItem *request)
         avpriv_report_missing_feature(NULL, "model function type %d", th_model->model->func_type);
         break;
     }
-    *infer_request->input_tensor = torch::from_blob(input.data,
-        {1, input.dims[channel_idx], input.dims[height_idx], input.dims[width_idx]},
-        deleter, torch::kFloat32);
+    if (th_model->model_type == FRVSR) {
+        *infer_request->input_tensor = torch::from_blob(input.data,
+            {1, 3, input.dims[height_idx], input.dims[width_idx]},
+            deleter, torch::kFloat32);
+    } else {
+        *infer_request->input_tensor = torch::from_blob(input.data,
+            {1, task->nb_input, input.dims[channel_idx], input.dims[height_idx], input.dims[width_idx]},
+            deleter, torch::kFloat32);
+    }
     if (infer_request->input_tensor->device() != ctx->options.device_type)
         *infer_request->input_tensor = infer_request->input_tensor->to(ctx->options.device_type);
     return 0;
@@ -304,6 +323,8 @@ static void infer_completion_callback(void *args) {
     THInferRequest *infer_request = request->infer_request;
     THModel *th_model = (THModel *)task->model;
     torch::Tensor *output = infer_request->output;
+    AVFrame *tmp_frame = NULL;
+    size_t offset = 0;
 
     c10::IntArrayRef sizes = output->sizes();
     outputs.order = DCO_RGB;
@@ -316,6 +337,13 @@ static void infer_completion_callback(void *args) {
         outputs.dims[1] = sizes.at(1); // C
         outputs.dims[2] = sizes.at(2); // H
         outputs.dims[3] = sizes.at(3); // W
+    } else if (sizes.size() == 5) {
+        // 4 dimensions: [batch_size, frame_number, channel, height, width]
+        // this format of data is normally used for video frame SR
+        outputs.dims[0] = sizes.at(0); // N
+        outputs.dims[1] = sizes.at(2); // C
+        outputs.dims[2] = sizes.at(3); // H
+        outputs.dims[3] = sizes.at(4); // W
     } else {
         avpriv_report_missing_feature(&th_model->ctx, "Support of this kind of model");
         goto err;
@@ -332,7 +360,13 @@ static void infer_completion_callback(void *args) {
             if (th_model->model->frame_post_proc != NULL) {
                 th_model->model->frame_post_proc(task->out_frame, &outputs, th_model->model->filter_ctx);
             } else {
-                ff_proc_from_dnn_to_frame(task->out_frame, &outputs, &th_model->ctx);
+                do {
+                    av_fifo_peek(task->out_queue, &tmp_frame, 1, offset);
+                    ff_proc_from_dnn_to_frame(tmp_frame, &outputs, &th_model->ctx);
+                    outputs.data += outputs.dims[1] * outputs.dims[2] * outputs.dims[3] * sizeof(float);
+                    offset++;
+                } while (av_fifo_can_read(task->out_queue) > offset);
+                task->out_frame = NULL;
             }
         } else {
             task->out_frame->width = outputs.dims[dnn_get_width_idx_by_layout(outputs.layout)];
@@ -397,8 +431,7 @@ err:
     }
     return ret;
 }
-
-static int get_output_th(void *model, const char *input_name, int input_width, int input_height,
+static int get_output_th(void *model, const char *input_name, int input_width, int input_height, int nb_input,
                                    const char *output_name, int *output_width, int *output_height)
 {
     int ret = 0;
@@ -409,6 +442,7 @@ static int get_output_th(void *model, const char *input_name, int input_width, i
     DNNExecBaseParams exec_params = {
         .input_name     = input_name,
         .output_names   = &output_name,
+        .nb_input       = (uint32_t)nb_input,
         .nb_output      = 1,
         .in_frame       = NULL,
         .out_frame      = NULL,
