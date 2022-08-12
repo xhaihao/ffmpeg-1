@@ -433,6 +433,38 @@ static int uyvyToYuv422Wrapper(SwsContext *c, const uint8_t *src[],
     return srcSliceH;
 }
 
+static void yuv444pTovuya(const uint8_t *src[], int srcStride[],
+                          uint8_t *dst, int dstStride, int srcSliceH, int width)
+{
+    int x, h, i;
+    for (h = 0; h < srcSliceH; h++) {
+        uint8_t *dest = dst + dstStride * h;
+
+        for (x = 0; x < width; x++) {
+            *dest++ = src[2][x];
+            *dest++ = src[1][x];
+            *dest++ = src[0][x];
+            *dest++ = 0xFF;
+        }
+
+        for (i = 0; i < 3; i++)
+            src[i] += srcStride[i];
+    }
+}
+
+static int yuv444pTovuyaWrapper(SwsContext *c, const uint8_t *src[],
+                                int srcStride[], int srcSliceY, int srcSliceH,
+                                uint8_t *dstParam[], int dstStride[])
+{
+    uint8_t *dst = dstParam[0] + dstStride[0] * srcSliceY;
+    const uint8_t *source[] = { src[0], src[1], src[2] };
+    int stride[] = { srcStride[0], srcStride[1], srcStride[2] };
+
+    yuv444pTovuya(source, stride, dst, dstStride[0], srcSliceH, c->srcW);
+
+    return srcSliceH;
+}
+
 static void gray8aToPacked32(const uint8_t *src, uint8_t *dst, int num_pixels,
                              const uint8_t *palette)
 {
@@ -2202,6 +2234,8 @@ void ff_get_unscaled_swscale(SwsContext *c)
         c->convert_unscaled = yuyvToYuv422Wrapper;
     if (srcFormat == AV_PIX_FMT_UYVY422 && dstFormat == AV_PIX_FMT_YUV422P)
         c->convert_unscaled = uyvyToYuv422Wrapper;
+    if (srcFormat == AV_PIX_FMT_YUV444P && dstFormat == AV_PIX_FMT_VUYA)
+        c->convert_unscaled = yuv444pTovuyaWrapper;
 
 #define isPlanarGray(x) (isGray(x) && (x) != AV_PIX_FMT_YA8 && (x) != AV_PIX_FMT_YA16LE && (x) != AV_PIX_FMT_YA16BE)
     /* simple copy */
