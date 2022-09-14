@@ -472,7 +472,7 @@ static int alloc_frame(AVCodecContext *avctx, QSVContext *q, QSVFrame *frame)
 
     frame->surface.Info = q->frame_info;
 
-    if (q->frames_ctx.mids) {
+    if (q->frames_ctx.nb_mids && q->frames_ctx.mids) {
         ret = ff_qsv_find_surface_idx(&q->frames_ctx, frame);
         if (ret < 0)
             return ret;

@@ -841,6 +841,13 @@ static mfxStatus qsv_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *req,
         mfxFrameInfo      *i  = &req->Info;
         mfxFrameInfo      *i1 = frames_hwctx->nb_surfaces ? &frames_hwctx->surfaces[0].Info : frames_hwctx->info;
 
+        if (!frames_ctx->initial_pool_size) {
+            av_log(ctx->logctx, AV_LOG_DEBUG,
+                   "Dynamic frame pools, no frame is pre-allocated\n");
+
+            return MFX_ERR_NONE;
+        }
+
         if (i->Width  > i1->Width  || i->Height > i1->Height ||
             i->FourCC != i1->FourCC || i->ChromaFormat != i1->ChromaFormat) {
             av_log(ctx->logctx, AV_LOG_ERROR, "Mismatching surface properties in an "
@@ -912,6 +919,9 @@ static mfxStatus qsv_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *req,
 
 static mfxStatus qsv_frame_free(mfxHDL pthis, mfxFrameAllocResponse *resp)
 {
+    if (!resp->mids)
+        return MFX_ERR_NONE;
+
     av_buffer_unref((AVBufferRef**)&resp->mids[resp->NumFrameActual]);
     av_buffer_unref((AVBufferRef**)&resp->mids[resp->NumFrameActual + 1]);
     av_freep(&resp->mids);
