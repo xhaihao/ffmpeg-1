@@ -59,6 +59,11 @@ typedef struct VPPContext{
     mfxExtVPPMirroring mirroring_conf;
     mfxExtVPPScaling scale_conf;
 
+#if QSV_ONEVPL
+    // Per frame
+    mfxExtVideoSignalInfo invsi_conf;
+#endif
+
     int out_width;
     int out_height;
     /**
@@ -518,6 +523,41 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
+static int update_frame_params(AVFilterContext *ctx, AVFrame *in)
+{
+#if QSV_ONEVPL
+    VPPContext *vpp = ctx->priv;
+    QSVVPPContext *qsvvpp = vpp->qsv;
+    QSVVPPFrameParam fp;
+    mfxExtBuffer *ext_buf[8];
+    mfxExtVideoSignalInfo invsi_conf;
+
+    if (!in ||
+        !QSV_RUNTIME_VERSION_ATLEAST(qsvvpp->ver, 2, 0))
+        return 0;
+
+    fp.ext_buf = ext_buf;
+    fp.num_ext_buf = 0;
+
+    memset(&invsi_conf, 0, sizeof(mfxExtVideoSignalInfo));
+    invsi_conf.Header.BufferId          = MFX_EXTBUFF_VIDEO_SIGNAL_INFO_IN;
+    invsi_conf.Header.BufferSz          = sizeof(mfxExtVideoSignalInfo);
+    invsi_conf.VideoFullRange           = (in->color_range == AVCOL_RANGE_JPEG);
+    invsi_conf.ColourPrimaries          = in->color_primaries;
+    invsi_conf.TransferCharacteristics  = in->color_trc;
+    invsi_conf.MatrixCoefficients       = in->colorspace;
+    invsi_conf.ColourDescriptionPresent = 1;
+
+    if (memcmp(&vpp->invsi_conf, &invsi_conf, sizeof(mfxExtVideoSignalInfo))) {
+        vpp->invsi_conf                = invsi_conf;
+        fp.ext_buf[fp.num_ext_buf++]   = (mfxExtBuffer*)&vpp->invsi_conf;
+
+        return ff_qsvvpp_reset_with_frame_params(ctx, qsvvpp, &fp);
+    }
+#endif
+    return 0;
+}
+
 static int activate(AVFilterContext *ctx)
 {
     AVFilterLink *inlink = ctx->inputs[0];
@@ -545,6 +585,10 @@ static int activate(AVFilterContext *ctx)
     if (qsv) {
         if (in || s->eof) {
             qsv->eof = s->eof;
+            ret = update_frame_params(ctx, in);
+            if (ret < 0)
+                return ret;
+
             ret = ff_qsvvpp_filter_frame(qsv, inlink, in);
             av_frame_free(&in);
             if (ret == AVERROR(EAGAIN))
