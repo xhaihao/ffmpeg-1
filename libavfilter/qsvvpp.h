@@ -109,6 +109,12 @@ typedef struct QSVVPPParam {
    int async_depth;
 } QSVVPPParam;
 
+typedef struct QSVVPPFrameParam {
+    /* To fill with MFX enhanced filter configurations */
+    int num_ext_buf;
+    mfxExtBuffer **ext_buf;
+} QSVVPPFrameParam;
+
 /* create and initialize the QSV session */
 int ff_qsvvpp_create(AVFilterContext *avctx, QSVVPPContext **vpp, QSVVPPParam *param);
 
@@ -129,5 +135,7 @@ int ff_qsvvpp_print_warning(void *log_ctx, mfxStatus err,
 
 int ff_qsvvpp_create_mfx_session(void *ctx, void *loader, mfxIMPL implementation,
                                  mfxVersion *pver, mfxSession *psession);
+
+int ff_qsvvpp_reset_with_frame_params(AVFilterContext *avctx, QSVVPPContext *vpp, QSVVPPFrameParam *fp);
 
 #endif /* AVFILTER_QSVVPP_H */

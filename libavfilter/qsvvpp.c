@@ -1024,3 +1024,28 @@ int ff_qsvvpp_create_mfx_session(void *ctx,
 }
 
 #endif
+
+int ff_qsvvpp_reset_with_frame_params(AVFilterContext *avctx, QSVVPPContext *vpp, QSVVPPFrameParam *fp)
+{
+    int ret;
+
+    av_freep(&vpp->ext_buffers);
+    vpp->nb_ext_buffers = vpp->nb_seq_buffers + fp->num_ext_buf;
+    vpp->ext_buffers = av_calloc(vpp->nb_ext_buffers, sizeof(*vpp->ext_buffers));
+    if (!vpp->ext_buffers)
+        return AVERROR(ENOMEM);
+
+    memcpy(&vpp->ext_buffers[0], vpp->seq_buffers, vpp->nb_seq_buffers * sizeof(*vpp->seq_buffers));
+    memcpy(&vpp->ext_buffers[vpp->nb_seq_buffers], fp->ext_buf, fp->num_ext_buf * sizeof(*fp->ext_buf));
+    vpp->vpp_param.ExtParam    = vpp->ext_buffers;
+    vpp->vpp_param.NumExtParam = vpp->nb_ext_buffers;
+
+    ret = MFXVideoVPP_Reset(vpp->session, &vpp->vpp_param);
+    if (ret < 0) {
+        ret = ff_qsvvpp_print_error(avctx, ret, "Failed to reset session for qsvvpp");
+        return ret;
+    } else if (ret > 0)
+        ff_qsvvpp_print_warning(avctx, ret, "Warning When resetting session for qsvvpp");
+
+    return 0;
+}
