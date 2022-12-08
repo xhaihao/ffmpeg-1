@@ -23,6 +23,7 @@
 #include "h264dec.h"
 #include "h264_ps.h"
 #include "hwconfig.h"
+#include "internal.h"
 #include "vaapi_decode.h"
 
 /**
@@ -236,6 +237,7 @@ static int vaapi_h264_start_frame(AVCodecContext          *avctx,
     int err;
 
     pic->output_surface = ff_vaapi_get_surface_id(h->cur_pic_ptr->f);
+    pic->is_ipic = (h->cur_pic_ptr->f->pict_type == AV_PICTURE_TYPE_I);
 
     pic_param = (VAPictureParameterBufferH264) {
         .picture_width_in_mbs_minus1                = h->mb_width - 1,
@@ -306,6 +308,34 @@ fail:
     return err;
 }
 
+static void ff_vaapi_decode_destroy_buffers(AVCodecContext *avctx,
+                                            VAAPIDecodePicture *pic)
+{
+    VAAPIDecodeContext *ctx = avctx->internal->hwaccel_priv_data;
+    VAStatus vas;
+    int i;
+
+    for (i = 0; i < pic->nb_param_buffers; i++) {
+        vas = vaDestroyBuffer(ctx->hwctx->display,
+                              pic->param_buffers[i]);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to destroy "
+                   "parameter buffer %#x: %d (%s).\n",
+                   pic->param_buffers[i], vas, vaErrorStr(vas));
+        }
+    }
+
+    for (i = 0; i < 2 * pic->nb_slices; i++) {
+        vas = vaDestroyBuffer(ctx->hwctx->display,
+                              pic->slice_buffers[i]);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to destroy slice "
+                   "slice buffer %#x: %d (%s).\n",
+                   pic->slice_buffers[i], vas, vaErrorStr(vas));
+        }
+    }
+}
+
 /** End a hardware decoding based frame. */
 static int vaapi_h264_end_frame(AVCodecContext *avctx)
 {
@@ -314,9 +344,17 @@ static int vaapi_h264_end_frame(AVCodecContext *avctx)
     H264SliceContext *sl = &h->slice_ctx[0];
     int ret;
 
-    ret = ff_vaapi_decode_issue(avctx, pic);
-    if (ret < 0)
-        goto finish;
+    if (pic->is_ipic) {
+        ret = ff_vaapi_decode_issue(avctx, pic);
+        if (ret < 0)
+            goto finish;
+    } else {
+        ff_vaapi_decode_destroy_buffers(avctx, pic);
+        pic->nb_param_buffers = 0;
+        pic->nb_slices        = 0;
+        pic->slices_allocated = 0;
+        av_freep(&pic->slice_buffers);
+    }
 
     ff_h264_draw_horiz_band(h, sl, 0, h->avctx->height);
 
