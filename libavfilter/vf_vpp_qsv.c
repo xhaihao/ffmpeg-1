@@ -779,6 +779,13 @@ static const AVOption qsvdeint_options[] = {
     { "bob",   "bob algorithm",                  0, AV_OPT_TYPE_CONST,      {.i64 = MFX_DEINTERLACING_BOB}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
     { "advanced", "Motion adaptive algorithm",   0, AV_OPT_TYPE_CONST, {.i64 = MFX_DEINTERLACING_ADVANCED}, MFX_DEINTERLACING_BOB, MFX_DEINTERLACING_ADVANCED, FLAGS, "mode"},
 
+    { "rate", "Generate output at frame rate or field rate, available only for deinterlace mode",
+      OFFSET(field_rate), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS, "rate" },
+    { "frame", "Output at frame rate (one frame of output for each field-pair)",
+      0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, "rate" },
+    { "field", "Output at field rate (one frame of output for each field)",
+      0, AV_OPT_TYPE_CONST, { .i64 = 1 }, 0, 0, FLAGS, "rate" },
+
     { "async_depth", "Internal parallelization depth, the higher the value the higher the latency.", OFFSET(qsv.async_depth), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, .flags = FLAGS },
     { NULL },
 };
@@ -789,7 +796,6 @@ static av_cold int qsvdeint_preinit(AVFilterContext *ctx)
 
     vpp_preinit(ctx);
     vpp->has_passthrough = 0;
-    vpp->field_rate = 1;
 
     return 0;
 }
