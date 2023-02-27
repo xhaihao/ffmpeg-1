@@ -276,6 +276,7 @@ extern const AVFilter ff_vf_eq;
 extern const AVFilter ff_vf_erosion;
 extern const AVFilter ff_vf_erosion_opencl;
 extern const AVFilter ff_vf_estdif;
+extern const AVFilter ff_vf_exportsubframe;
 extern const AVFilter ff_vf_exposure;
 extern const AVFilter ff_vf_extractplanes;
 extern const AVFilter ff_vf_fade;
