@@ -195,6 +195,8 @@ static int config_comm_output(AVFilterLink *outlink)
 
     }
 
+    width = FFMAX(width, sctx->width);
+    height = FFMAX(height, sctx->height);
     outlink->w = width;
     outlink->h = height;
     outlink->frame_rate = inlink0->frame_rate;
@@ -330,6 +332,7 @@ static const AVFilterPad stack_outputs[] = {
         { "grid",   "set fixed size grid layout", OFFSET(base.nb_grid_columns), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, .flags = FLAGS }, \
         { "grid_tile_size",   "set tile size in grid layout", OFFSET(base.tile_width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, .flags = FLAGS }, \
         { "fill",   "Set the color for unused pixels", OFFSET(base.fillcolor_str), AV_OPT_TYPE_STRING, {.str = "none"}, .flags = FLAGS }, \
+        { "output_size",   "set output size", OFFSET(base.width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, .flags = FLAGS }, \
         { NULL }                                                        \
     }
 

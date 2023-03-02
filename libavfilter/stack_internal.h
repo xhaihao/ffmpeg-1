@@ -48,6 +48,8 @@ typedef struct StackBaseContext {
     int tile_height;
     int nb_grid_columns;
     int nb_grid_rows;
+    int width;
+    int height;
     char *layout;
     char *fillcolor_str;
 } StackBaseContext;
