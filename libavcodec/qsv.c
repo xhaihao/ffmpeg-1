@@ -987,14 +987,26 @@ static mfxStatus qsv_frame_unlock(mfxHDL pthis, mfxMemId mid, mfxFrameData *ptr)
 
 static mfxStatus qsv_frame_get_hdl(mfxHDL pthis, mfxMemId mid, mfxHDL *hdl)
 {
-    QSVMid *qsv_mid = (QSVMid*)mid;
-    mfxHDLPair *pair_dst = (mfxHDLPair*)hdl;
-    mfxHDLPair *pair_src = (mfxHDLPair*)qsv_mid->handle_pair;
+    QSVFramesContext *ctx = (QSVFramesContext *)pthis;
+    AVHWFramesContext *frames_ctx = (AVHWFramesContext*)ctx->hw_frames_ctx->data;
+    AVQSVFramesContext *frames_hwctx = frames_ctx->hwctx;
 
-    pair_dst->first = pair_src->first;
+    if (frames_hwctx->nb_surfaces) {
+        QSVMid *qsv_mid = (QSVMid*)mid;
+        mfxHDLPair *pair_dst = (mfxHDLPair*)hdl;
+        mfxHDLPair *pair_src = (mfxHDLPair*)qsv_mid->handle_pair;
 
-    if (pair_src->second != (mfxMemId)MFX_INFINITE)
-        pair_dst->second = pair_src->second;
+        pair_dst->first = pair_src->first;
+
+        if (pair_src->second != (mfxMemId)MFX_INFINITE)
+            pair_dst->second = pair_src->second;
+    } else {
+        mfxHDLPair *pair_dst = (mfxHDLPair*)hdl;
+        mfxHDLPair *pair_src = (mfxHDLPair*)mid;
+
+        *pair_dst = *pair_src;
+    }
+
     return MFX_ERR_NONE;
 }
 
