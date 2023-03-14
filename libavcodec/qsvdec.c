@@ -309,7 +309,10 @@ static int qsv_decode_preinit(AVCodecContext *avctx, QSVContext *q, enum AVPixel
         hwframes_ctx->height            = FFALIGN(avctx->coded_height, 32);
         hwframes_ctx->format            = AV_PIX_FMT_QSV;
         hwframes_ctx->sw_format         = avctx->sw_pix_fmt;
-        hwframes_ctx->initial_pool_size = q->suggest_pool_size + 16 + avctx->extra_hw_frames;
+        if (QSV_RUNTIME_VERSION_ATLEAST(q->ver, 2, 9))
+            hwframes_ctx->initial_pool_size = 0;
+        else
+            hwframes_ctx->initial_pool_size = q->suggest_pool_size + 16 + avctx->extra_hw_frames;
         frames_hwctx->frame_type        = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
 
         ret = av_hwframe_ctx_init(avctx->hw_frames_ctx);
