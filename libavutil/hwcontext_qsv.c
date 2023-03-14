@@ -104,6 +104,8 @@ typedef struct QSVFramesContext {
 #endif
     AVFrame realigned_upload_frame;
     AVFrame realigned_download_frame;
+
+    mfxFrameInfo *frame_info;
 } QSVFramesContext;
 
 static const struct {
@@ -350,6 +352,7 @@ static void qsv_frames_uninit(AVHWFramesContext *ctx)
 #endif
     av_freep(&s->surfaces_internal);
     av_freep(&s->handle_pairs_internal);
+    av_freep(&s->frame_info);
     av_frame_unref(&s->realigned_upload_frame);
     av_frame_unref(&s->realigned_download_frame);
     av_buffer_unref(&s->child_frames_ref);
