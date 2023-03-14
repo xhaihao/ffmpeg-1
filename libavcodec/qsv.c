@@ -1115,14 +1115,18 @@ int ff_qsv_init_session_frames(AVCodecContext *avctx, mfxSession *psession,
 
     if (!opaque) {
         qsv_frames_ctx->logctx = avctx;
+        av_buffer_unref(&qsv_frames_ctx->mids_buf);
+        qsv_frames_ctx->mids = NULL;
+        qsv_frames_ctx->nb_mids = 0;
 
         /* allocate the memory ids for the external frames */
-        av_buffer_unref(&qsv_frames_ctx->mids_buf);
-        qsv_frames_ctx->mids_buf = qsv_create_mids(qsv_frames_ctx->hw_frames_ctx);
-        if (!qsv_frames_ctx->mids_buf)
-            return AVERROR(ENOMEM);
-        qsv_frames_ctx->mids    = (QSVMid*)qsv_frames_ctx->mids_buf->data;
-        qsv_frames_ctx->nb_mids = frames_hwctx->nb_surfaces;
+        if (frames_hwctx->nb_surfaces) {
+            qsv_frames_ctx->mids_buf = qsv_create_mids(qsv_frames_ctx->hw_frames_ctx);
+            if (!qsv_frames_ctx->mids_buf)
+                return AVERROR(ENOMEM);
+            qsv_frames_ctx->mids    = (QSVMid*)qsv_frames_ctx->mids_buf->data;
+            qsv_frames_ctx->nb_mids = frames_hwctx->nb_surfaces;
+        }
 
         err = MFXVideoCORE_SetFrameAllocator(session, &frame_allocator);
         if (err != MFX_ERR_NONE)
