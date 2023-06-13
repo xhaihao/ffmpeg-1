@@ -2573,9 +2573,13 @@ int ff_qsv_encode(AVCodecContext *avctx, QSVEncContext *q,
             ret = MFXVideoCORE_SyncOperation(q->session, *qpkt.sync, 1000);
         } while (ret == MFX_WRN_IN_EXECUTION);
 
+        *got_packet = 1;
+
         qpkt.pkt.dts  = av_rescale_q(qpkt.bs->DecodeTimeStamp, (AVRational){1, 90000}, avctx->time_base);
         qpkt.pkt.pts  = av_rescale_q(qpkt.bs->TimeStamp,       (AVRational){1, 90000}, avctx->time_base);
         qpkt.pkt.size = qpkt.bs->DataLength;
+
+        av_log(avctx, AV_LOG_VERBOSE, "coded pkt size: %d\n", qpkt.pkt.size);
 
         if (qpkt.bs->FrameType & MFX_FRAMETYPE_IDR || qpkt.bs->FrameType & MFX_FRAMETYPE_xIDR) {
             qpkt.pkt.flags |= AV_PKT_FLAG_KEY;
@@ -2589,8 +2593,10 @@ int ff_qsv_encode(AVCodecContext *avctx, QSVEncContext *q,
         else if (qpkt.bs->FrameType == MFX_FRAMETYPE_UNKNOWN) {
             pict_type = AV_PICTURE_TYPE_NONE;
             av_log(avctx, AV_LOG_WARNING, "Unknown FrameType, set pict_type to AV_PICTURE_TYPE_NONE.\n");
+            *got_packet = 0;
         } else {
             av_log(avctx, AV_LOG_ERROR, "Invalid FrameType:%d.\n", qpkt.bs->FrameType);
+            *got_packet = 0;
             return AVERROR_INVALIDDATA;
         }
 
@@ -2606,8 +2612,6 @@ int ff_qsv_encode(AVCodecContext *avctx, QSVEncContext *q,
         av_freep(&qpkt.sync);
 
         av_packet_move_ref(pkt, &qpkt.pkt);
-
-        *got_packet = 1;
     }
 
     return 0;
