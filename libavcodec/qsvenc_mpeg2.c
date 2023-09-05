@@ -41,6 +41,9 @@ static av_cold int qsv_enc_init(AVCodecContext *avctx)
 {
     QSVMpeg2EncContext *q = avctx->priv_data;
 
+    // MPEG2 and H264 meaning of the value is shifted by 1, make it consistent
+    q->qsv.idr_interval++;
+
     return ff_qsv_enc_init(avctx, &q->qsv);
 }
 
@@ -70,6 +73,8 @@ static const AVOption options[] = {
     { "simple",  NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_PROFILE_MPEG2_SIMPLE   }, INT_MIN, INT_MAX,     VE, "profile" },
     { "main",    NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_PROFILE_MPEG2_MAIN     }, INT_MIN, INT_MAX,     VE, "profile" },
     { "high",    NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_PROFILE_MPEG2_HIGH     }, INT_MIN, INT_MAX,     VE, "profile" },
+
+    { "idr_interval", "Distance (in I-frames) between IDR frames", OFFSET(qsv.idr_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, -1, INT_MAX, VE },
 
     { NULL },
 };
