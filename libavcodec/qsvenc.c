@@ -1957,6 +1957,19 @@ static int submit_frame(QSVEncContext *q, const AVFrame *frame,
 
         qf->surface = *(mfxFrameSurface1*)qf->frame->data[3];
 
+        if (q->avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT) {
+            qf->surface.Info.PicStruct =
+                !(frame->flags & AV_FRAME_FLAG_INTERLACED) ? MFX_PICSTRUCT_PROGRESSIVE :
+                (frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) ? MFX_PICSTRUCT_FIELD_TFF :
+                MFX_PICSTRUCT_FIELD_BFF;
+            if (frame->repeat_pict == 1)
+                qf->surface.Info.PicStruct |= MFX_PICSTRUCT_FIELD_REPEATED;
+            else if (frame->repeat_pict == 2)
+                qf->surface.Info.PicStruct |= MFX_PICSTRUCT_FRAME_DOUBLING;
+            else if (frame->repeat_pict == 4)
+                qf->surface.Info.PicStruct |= MFX_PICSTRUCT_FRAME_TRIPLING;
+        }
+
         if (q->frames_ctx.mids) {
             ret = ff_qsv_find_surface_idx(&q->frames_ctx, qf);
             if (ret < 0)
