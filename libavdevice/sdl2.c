@@ -159,11 +159,19 @@ static int sdl2_write_trailer(AVFormatContext *s)
 
 static int sdl2_write_header(AVFormatContext *s)
 {
+    return 0;
+}
+
+static int sdl2_init(AVFormatContext *s)
+{
     SDLContext *sdl = s->priv_data;
     AVStream *st = s->streams[0];
     AVCodecParameters *codecpar = st->codecpar;
     int i, ret = 0;
     int flags  = 0;
+
+    if (sdl->inited)
+        return 0;
 
     if (!sdl->window_title)
         sdl->window_title = av_strdup(s->url);
@@ -249,6 +257,11 @@ static int sdl2_write_packet(AVFormatContext *s, AVPacket *pkt)
     int linesize[4];
 
     SDL_Event event;
+
+    ret = sdl2_init(s);
+    if (ret)
+        return ret;
+
     if (SDL_PollEvent(&event)){
         switch (event.type) {
         case SDL_KEYDOWN:
