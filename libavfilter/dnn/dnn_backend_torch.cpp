@@ -41,6 +41,8 @@ typedef struct THOptions{
     char *device_name;
     int optimize;
     c10::DeviceType device_type;
+    uint8_t async;
+    uint32_t nireq;
 } THOptions;
 
 typedef struct THContext {
@@ -77,10 +79,13 @@ typedef struct THRequestItem {
 static const AVOption dnn_th_options[] = {
     { "device", "device to run model", OFFSET(options.device_name), AV_OPT_TYPE_STRING, { .str = "cpu" }, 0, 0, FLAGS },
     { "optimize", "turn on graph executor optimization", OFFSET(options.optimize), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS},
+    DNN_BACKEND_COMMON_OPTIONS
     { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(dnn_th);
+
+static void dnn_free_model_th(DNNModel **model);
 
 static int extract_lltask_from_task(TaskItem *task, Queue *lltask_queue)
 {
@@ -394,6 +399,7 @@ static int execute_model_th(THRequestItem *request, Queue *lltask_queue)
     LastLevelTaskItem *lltask;
     TaskItem *task = NULL;
     int ret = 0;
+    THContext *ctx;
 
     if (ff_queue_size(lltask_queue) == 0) {
         destroy_request_item(&request);
@@ -408,13 +414,17 @@ static int execute_model_th(THRequestItem *request, Queue *lltask_queue)
     }
     task = lltask->task;
     th_model = (THModel *)task->model;
+    ctx = &th_model->ctx;
 
     ret = fill_model_input_th(th_model, request);
     if ( ret != 0) {
         goto err;
     }
     if (task->async) {
-        avpriv_report_missing_feature(&th_model->ctx, "LibTorch async");
+        if (ff_dnn_start_inference_async(ctx, &request->exec_module) != 0) {
+            goto err;
+        }
+        return 0;
     } else {
         ret = th_start_inference((void *)(request));
         if (ret != 0) {
@@ -540,29 +550,41 @@ static DNNModel *dnn_load_model_th(const char *model_filename, DNNFunctionType f
     }
     first_param = *th_model->jit_model->named_parameters().begin();
 
+#if !HAVE_PTHREAD_CANCEL
+    if (ctx->options.async) {
+        ctx->options.async = 0;
+        av_log(filter_ctx, AV_LOG_WARNING, "pthread is not supported, roll back to sync.\n");
+    }
+#endif
+
     th_model->request_queue = ff_safe_queue_create();
     if (!th_model->request_queue) {
         goto fail;
     }
 
-    item = (THRequestItem *)av_mallocz(sizeof(THRequestItem));
-    if (!item) {
-        goto fail;
-    }
-    item->lltask = NULL;
-    item->infer_request = th_create_inference_request();
-    if (!item->infer_request) {
-        av_log(NULL, AV_LOG_ERROR, "Failed to allocate memory for Torch inference request\n");
-        goto fail;
-    }
-    item->exec_module.start_inference = &th_start_inference;
-    item->exec_module.callback = &infer_completion_callback;
-    item->exec_module.args = item;
+    if (ctx->options.nireq <= 0)
+        ctx->options.nireq = 1;
 
-    if (ff_safe_queue_push_back(th_model->request_queue, item) < 0) {
-        goto fail;
+    for (int i = 0; i < ctx->options.nireq; i++) {
+        item = (THRequestItem *)av_mallocz(sizeof(THRequestItem));
+        if (!item) {
+            goto fail;
+        }
+        item->lltask = NULL;
+        item->infer_request = th_create_inference_request();
+        if (!item->infer_request) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to allocate memory for Torch inference request\n");
+            goto fail;
+        }
+        item->exec_module.start_inference = &th_start_inference;
+        item->exec_module.callback = &infer_completion_callback;
+        item->exec_module.args = item;
+
+        if (ff_safe_queue_push_back(th_model->request_queue, item) < 0) {
+            goto fail;
+        }
+        item = NULL;
     }
-    item = NULL;
 
     th_model->task_queue = ff_queue_create();
     if (!th_model->task_queue) {
@@ -618,7 +640,7 @@ static int dnn_execute_model_th(const DNNModel *model, DNNExecBaseParams *exec_p
         return AVERROR(ENOMEM);
     }
 
-    ret = ff_dnn_fill_task(task, exec_params, th_model, 0, 1);
+    ret = ff_dnn_fill_task(task, exec_params, th_model, ctx->options.async, 1);
     if (ret != 0) {
         av_freep(&task);
         av_log(ctx, AV_LOG_ERROR, "unable to fill task.\n");
