@@ -47,6 +47,7 @@ typedef struct TaskItem {
     uint32_t nb_output;
     uint32_t inference_todo;
     uint32_t inference_done;
+    uint32_t device_idx;
 } TaskItem;
 
 // one task might have multiple inferences

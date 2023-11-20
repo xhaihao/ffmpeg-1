@@ -139,7 +139,6 @@ int ff_dnn_start_inference_async(void *ctx, DNNAsyncExecModule *async_module)
 DNNAsyncStatusType ff_dnn_get_result_common(Queue *task_queue, AVFrame **in, AVFrame **out)
 {
     TaskItem *task = ff_queue_peek_front(task_queue);
-
     if (!task) {
         return DAST_EMPTY_QUEUE;
     }
