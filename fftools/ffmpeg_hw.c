@@ -96,6 +96,7 @@ int hw_device_init_from_string(const char *arg, HWDevice **dev_out)
     // "type=name"
     // "type=name,key=value,key2=value2"
     // "type=name:device,key=value,key2=value2"
+    // "type,key=value,key2=value2"
     // "type:device,key=value,key2=value2"
     // -> av_hwdevice_ctx_create()
     // "type=name@name"
@@ -111,7 +112,7 @@ int hw_device_init_from_string(const char *arg, HWDevice **dev_out)
     const char *errmsg, *p, *q;
     size_t k;
 
-    k = strcspn(arg, ":=@");
+    k = strcspn(arg, ":=@,");
     p = arg + k;
 
     type_name = av_strndup(arg, k);
