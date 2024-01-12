@@ -548,6 +548,9 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
             avctx->chroma_sample_location - 1;
     }
 
+    vui->colour_description_present_flag = 0;
+    vui->video_signal_type_present_flag = 1;
+
     vui->vui_timing_info_present_flag        = 1;
     vui->vui_num_units_in_tick               = vps->vps_num_units_in_tick;
     vui->vui_time_scale                      = vps->vps_time_scale;
