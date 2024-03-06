@@ -232,8 +232,16 @@ static av_cold int init_filter(AVFilterContext *ctx, AVFrame *in)
     if (s->vkctx.output_format != s->vkctx.input_format) {
         const AVLumaCoefficients *lcoeffs;
         double tmp_mat[3][3];
+        enum AVColorSpace csp = in->colorspace;
 
-        lcoeffs = av_csp_luma_coeffs_from_avcsp(in->colorspace);
+        if (csp == AVCOL_SPC_UNSPECIFIED) {
+            if (ff_vk_mt_is_np_rgb(s->vkctx.input_format))
+                csp = AVCOL_SPC_RGB;
+            else
+                csp = AVCOL_SPC_BT709;
+        }
+
+        lcoeffs = av_csp_luma_coeffs_from_avcsp(csp);
         if (!lcoeffs) {
             av_log(ctx, AV_LOG_ERROR, "Unsupported colorspace\n");
             return AVERROR(EINVAL);
