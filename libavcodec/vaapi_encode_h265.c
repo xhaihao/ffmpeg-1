@@ -665,6 +665,7 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
             .pcm_enabled_flag              = sps->pcm_enabled_flag,
             .pcm_loop_filter_disabled_flag = sps->pcm_loop_filter_disabled_flag,
             .sps_temporal_mvp_enabled_flag = sps->sps_temporal_mvp_enabled_flag,
+            .hierachical_flag              = !!(ctx->max_b_depth > 1),
         },
 
         .log2_min_luma_coding_block_size_minus3 =
@@ -967,6 +968,7 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
         av_assert0(0 && "invalid picture type");
     }
 
+    vpic->hierarchical_level_plus1               = pic->b_depth + 1;
     return 0;
 }
 
