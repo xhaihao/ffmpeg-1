@@ -45,7 +45,7 @@
 #define FLAGS (AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_FILTERING_PARAM)
 
 /* number of video enhancement filters */
-#define ENH_FILTERS_COUNT (8)
+#define ENH_FILTERS_COUNT (16)
 
 typedef struct VPPContext{
     QSVVPPContext qsv;
@@ -59,6 +59,10 @@ typedef struct VPPContext{
     mfxExtVPPRotation rotation_conf;
     mfxExtVPPMirroring mirroring_conf;
     mfxExtVPPScaling scale_conf;
+#if HAVE_MFXEXTVPPAIFRAMEINTERPOLATION
+    mfxExtVPPAIFrameInterpolation ai_frame_ip_conf;
+#endif
+
 #if QSV_ONEVPL
     /** Video signal info attached on the input frame */
     mfxExtVideoSignalInfo invsi_conf;
@@ -83,6 +87,7 @@ typedef struct VPPContext{
 
     AVRational framerate;       /* target framerate */
     int use_frc;                /* use framerate conversion */
+    int frc_mode;               /* specify frc method */
     int deinterlace;            /* deinterlace mode : 0=off, 1=bob, 2=advanced */
     int denoise;                /* Enable Denoise algorithm. Value [0, 100] */
     int detail;                 /* Enable Detail Enhancement algorithm. */
@@ -593,7 +598,22 @@ static int config_output(AVFilterLink *outlink)
 
     if (vpp->use_frc) {
         INIT_MFX_EXTBUF(frc_conf, MFX_EXTBUFF_VPP_FRAME_RATE_CONVERSION);
+        if (vpp->deinterlace && vpp->frc_mode) {
+            av_log(ctx, AV_LOG_WARNING, "Deinterlacing doesn't work with AI based frame interpolation.\n");
+            vpp->frc_mode = 0;
+        }
+
         SET_MFX_PARAM_FIELD(frc_conf, Algorithm, MFX_FRCALGM_DISTRIBUTED_TIMESTAMP);
+
+#if HAVE_MFXEXTVPPAIFRAMEINTERPOLATION
+        if (vpp->frc_mode) {
+            SET_MFX_PARAM_FIELD(frc_conf, Algorithm, MFX_FRCALGM_DISTRIBUTED_TIMESTAMP | MFX_FRCALGM_AI_FRAME_INTERPOLATION);
+
+            INIT_MFX_EXTBUF(ai_frame_ip_conf, MFX_EXTBUFF_VPP_AI_FRAME_INTERPOLATION);
+            SET_MFX_PARAM_FIELD(ai_frame_ip_conf, FIMode, MFX_AI_FRAME_INTERPOLATION_MODE_DEFAULT);
+            SET_MFX_PARAM_FIELD(ai_frame_ip_conf, EnableScd, 1);
+        }
+#endif
     }
 
     if (vpp->denoise) {
@@ -924,6 +944,15 @@ static const AVOption vpp_options[] = {
       OFFSET(color_transfer_str),  AV_OPT_TYPE_STRING, { .str = NULL }, .flags = FLAGS },
 
     {"tonemap", "Perform tonemapping (0=disable tonemapping, 1=perform tonemapping if the input has HDR metadata)", OFFSET(tonemap), AV_OPT_TYPE_INT, {.i64 = 0 }, 0, 1, .flags = FLAGS},
+#if HAVE_MFXEXTVPPAIFRAMEINTERPOLATION
+    { "frc_mode", "Specify the FRC mode", OFFSET(frc_mode), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, .flags = FLAGS, .unit = "frc mode" },
+    { "normal",   "normal mode", 0, AV_OPT_TYPE_CONST, { .i64 = MFX_AI_FRAME_INTERPOLATION_MODE_DISABLE }, 0, 0, FLAGS, .unit = "frc mode" },
+    { "ai",       "ai mode",     0, AV_OPT_TYPE_CONST, { .i64 = MFX_AI_FRAME_INTERPOLATION_MODE_DEFAULT }, 0, 0, FLAGS, .unit = "frc mode" },
+#else
+    { "frc_mode", "Specify the FRC mode (ignored)", OFFSET(frc_mode), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, .flags = FLAGS, .unit = "frc mode" },
+    { "normal",   "normal mode", 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, .unit = "frc mode" },
+    { "ai",       "ai mode",     0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, .unit = "frc mode" },
+#endif
 
     { NULL }
 };
