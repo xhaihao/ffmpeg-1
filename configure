@@ -6920,7 +6920,7 @@ elif enabled libvpl; then
             die "ERROR: libvpl >= 2.6 not found"
     add_cflags -DMFX_DEPRECATED_OFF
     check_type "vpl/mfxdefs.h vpl/mfxvideo.h" "struct mfxConfigInterface"
-    check_type "vpl/mfxdefs.h vpl/mfxstructures.h" "mfxExtVPPAIFrameInterpolation"
+    check_type "vpl/mfxdefs.h vpl/mfxstructures.h" "mfxExtVPPAIFrameInterpolation" -DONEVPL_EXPERIMENTAL
 fi
 
 if enabled libmfx; then

@@ -21,6 +21,11 @@
  ** Hardware accelerated common filters based on Intel Quick Sync Video VPP
  **/
 
+#include "config.h"
+#if HAVE_MFXEXTVPPAIFRAMEINTERPOLATION
+#define ONEVPL_EXPERIMENTAL
+#endif
+
 #include <float.h>
 
 #include "config_components.h"
